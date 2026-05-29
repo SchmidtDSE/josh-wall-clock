@@ -1,0 +1,17 @@
+# Josh runtime jar — large (~117M) and auto-downloaded by benchmark.sh
+joshsim-fat.jar
+
+# Josh preprocessing cache (regenerated on first run)
+reference/*.jshd
+
+# Simulation outputs
+reference/output/
+reference-mesa/output/
+
+# Benchmark results
+benchmark_results_*.csv
+
+# Python
+reference-mesa/.venv/
+__pycache__/
+*.pyc
