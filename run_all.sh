@@ -11,10 +11,12 @@
 # Output: results_<hostname>.csv with columns
 #   hostname,implementation,threaded,replicates,cores,wallSeconds,userSeconds
 #
-# Josh's .jshd preprocessing is built once (untimed) and reused by both Josh
-# configs, so the timed numbers are run-only and directly comparable. Each
-# implementation also gets a cheap untimed warm-up so the timed run isn't a
-# cold-cache outlier.
+# Josh's .jshd preprocessing is rebuilt fresh inside each timed Josh run (the
+# .jshd is removed first), so each Josh timing includes one preprocess pass
+# amortized across the REPLICATES. The Mesa references load the climate once
+# per process and reuse it across replicates, so their climate setup is likewise
+# paid once and amortized -- keeping the two sides symmetric. Each implementation
+# also gets a cheap untimed warm-up so the timed run isn't a cold-cache outlier.
 #
 # Usage: ./run_all.sh [replicates]   (default 100)
 set -euo pipefail
@@ -65,8 +67,12 @@ rm -f "$SCRIPT_DIR"/reference/*.jshd
 PYTHON_GIL=0 "$MESA_FT_PY" "$MESA_THREADED" 1 "$CORES" >/dev/null 2>&1 || true
 
 # --- Timed runs -------------------------------------------------------------
+# Each Josh run rebuilds the .jshd fresh, so its preprocess pass is included in
+# the timing and amortized across the replicates (one preprocess per config).
 echo "Timing $REPLICATES replicates per config..."
+rm -f "$SCRIPT_DIR"/reference/*.jshd
 record josh false "$JOSH_RUN" "$REPLICATES" false
+rm -f "$SCRIPT_DIR"/reference/*.jshd
 record josh true  "$JOSH_RUN" "$REPLICATES" true
 record mesa false "$MESA_PY" "$MESA_SERIAL" "$REPLICATES"
 record mesa true  env PYTHON_GIL=0 "$MESA_FT_PY" "$MESA_THREADED" "$REPLICATES" "$CORES"

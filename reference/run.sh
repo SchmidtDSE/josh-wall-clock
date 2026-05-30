@@ -37,5 +37,6 @@ java -XX:MaxRAMPercentage=90.0 -jar "$JAR" run \
   forevertree.josh Main \
   "--custom-tag=outputDir=$OUTPUT_DIR" \
   "--replicates=$REPLICATES" \
+  --use-float-64 \
   "${THREAD_FLAGS[@]}" \
   --suppress-info

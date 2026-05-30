@@ -1,5 +1,4 @@
 import math
-from decimal import Decimal
 import numpy as np
 import xarray as xr
 import pandas as pd
@@ -8,32 +7,34 @@ from mesa.space import MultiGrid
 
 
 def D(value):
-    """Coerce a scalar (numpy/Python float or int) into a Decimal.
+    """Coerce a scalar (numpy/Python float or int) into a Python float.
 
-    Goes via str so the Decimal tracks the printed value rather than the
-    exact binary-float expansion. This mirrors how the Josh runtime carries
-    every model quantity as a Java BigDecimal, so the per-tree arithmetic
-    below exercises the same arbitrary-precision path Josh does.
+    Both implementations are compared at matched native precision: this
+    reference carries every model quantity as an IEEE 754 64-bit float, and
+    Josh is run with --use-float-64 so it likewise backs values with Java
+    doubles rather than BigDecimal. Using the same native floating-point type
+    on both sides avoids the behavioral differences between Python's Decimal
+    and Java's BigDecimal and keeps the wall-clock comparison clean.
     """
-    return Decimal(str(value))
+    return float(value)
 
 
-# Simulation constants, carried as Decimals so all per-tree growth math stays
-# in arbitrary-precision decimal arithmetic (the BigDecimal analogue).
-T_MIN = Decimal("270.0")
-T_MAX = Decimal("330.0")
-P_LOW = Decimal("300.0")
-P_HIGH = Decimal("500.0")
-SIGMOID_K = Decimal("12.0")
-DELTA_H_MAX = Decimal("1.0")
-STOCHASTIC_STD = 0.05  # passed to numpy's float64 RNG; result is coerced to Decimal
+# Simulation constants, carried as floats so all per-tree growth math stays in
+# IEEE 754 64-bit floating point (the Java-double analogue under --use-float-64).
+T_MIN = 270.0
+T_MAX = 330.0
+P_LOW = 300.0
+P_HIGH = 500.0
+SIGMOID_K = 12.0
+DELTA_H_MAX = 1.0
+STOCHASTIC_STD = 0.05  # passed to numpy's float64 RNG; already a float
 TREES_PER_PATCH = 10
 
-# Decimal literals reused in the hot path.
-_ZERO = Decimal("0")
-_ONE = Decimal("1")
-_FOUR = Decimal("4")
-_HALF = Decimal("0.5")
+# Float literals reused in the hot path.
+_ZERO = 0.0
+_ONE = 1.0
+_FOUR = 4.0
+_HALF = 0.5
 
 LAT_LOW = 35.80
 LAT_HIGH = 36.73
@@ -45,6 +46,12 @@ SECONDS_PER_YEAR = 31_536_000
 START_YEAR = 2024
 NUM_STEPS = 11
 
+# Parsed climate arrays, cached per (temp_path, precip_path) so the NetCDF is
+# read and unit-converted once per process and then shared (read-only) across
+# every replicate's model, instead of being re-opened on each model __init__.
+# This mirrors Josh, which parses the climate once into .jshd and reuses it.
+_CLIMATE_CACHE = {}
+
 
 def _temperature_impact(temp_k):
     t = min(max(temp_k, T_MIN), T_MAX)
@@ -54,7 +61,7 @@ def _temperature_impact(temp_k):
 
 def _precipitation_impact(precip_mm):
     x = (precip_mm - P_LOW) / (P_HIGH - P_LOW)
-    return _ONE / (_ONE + (-SIGMOID_K * (x - _HALF)).exp())
+    return _ONE / (_ONE + math.exp(-SIGMOID_K * (x - _HALF)))
 
 
 class ForeverTree(Agent):
@@ -103,19 +110,27 @@ class ForeverTreeModel(Model):
                     self.grid.place_agent(tree, (col, row))
 
     def _load_climate(self, temp_path, precip_path):
-        ds_t = xr.open_dataset(temp_path)
-        ds_p = xr.open_dataset(precip_path)
-        # Detect coordinate names
-        lat_name = next(v for v in ds_t.coords if "lat" in v.lower())
-        lon_name = next(v for v in ds_t.coords if "lon" in v.lower())
-        time_name = next(v for v in ds_t.coords if "year" in v.lower() or "time" in v.lower())
-        self._lats = ds_t[lat_name].values
-        self._lons = ds_t[lon_name].values
-        self._temp_data = ds_t["tasmax"].values   # (time, lat, lon)
-        self._precip_data = ds_p["pr"].values * SECONDS_PER_YEAR  # kgm2s → mm/yr
-        self._start_year_idx = int(ds_t[time_name].values[0]) - START_YEAR
-        ds_t.close()
-        ds_p.close()
+        key = (temp_path, precip_path)
+        cached = _CLIMATE_CACHE.get(key)
+        if cached is None:
+            ds_t = xr.open_dataset(temp_path)
+            ds_p = xr.open_dataset(precip_path)
+            # Detect coordinate names
+            lat_name = next(v for v in ds_t.coords if "lat" in v.lower())
+            lon_name = next(v for v in ds_t.coords if "lon" in v.lower())
+            time_name = next(v for v in ds_t.coords if "year" in v.lower() or "time" in v.lower())
+            cached = (
+                ds_t[lat_name].values,
+                ds_t[lon_name].values,
+                ds_t["tasmax"].values,                    # (time, lat, lon)
+                ds_p["pr"].values * SECONDS_PER_YEAR,     # kgm2s → mm/yr
+                int(ds_t[time_name].values[0]) - START_YEAR,
+            )
+            ds_t.close()
+            ds_p.close()
+            _CLIMATE_CACHE[key] = cached
+        (self._lats, self._lons, self._temp_data,
+         self._precip_data, self._start_year_idx) = cached
 
     def _nearest_climate(self, col, row, step):
         lat = LAT_HIGH - (row + 0.5) * (LAT_HIGH - LAT_LOW) / self.n_rows
@@ -155,7 +170,7 @@ class ForeverTreeModel(Model):
                 lat, lon, li, oi, ti = self._nearest_climate(col, row, self.current_step)
                 temp = float(self._temp_data[ti, li, oi])
                 precip = float(self._precip_data[ti, li, oi])
-                n = Decimal(len(trees))
+                n = len(trees)
                 mean_age = sum((t.age for t in trees), _ZERO) / n
                 mean_height = sum((t.height for t in trees), _ZERO) / n
                 self.records.append({
@@ -188,9 +203,9 @@ if __name__ == "__main__":
     # Produce every replicate inside this one long-lived process: the Python
     # interpreter + imports are paid for exactly once, not per replicate. This
     # parallels how the Josh runtime emits all replicates from a single JVM
-    # invocation, making the wall-clock comparison cleaner. Note Python's
-    # Decimal (C / libmpdec) runs at constant native speed across replicates,
-    # so unlike the JVM's BigDecimal paths it won't speed up as the run warms.
+    # invocation, making the wall-clock comparison cleaner. Note Python's float
+    # arithmetic runs at constant native speed across replicates, so unlike the
+    # JVM's JIT-compiled paths it won't speed up as the run warms.
     total_rows = 0
     for seed in range(replicates):
         model = ForeverTreeModel(temp_path, precip_path, seed=seed)

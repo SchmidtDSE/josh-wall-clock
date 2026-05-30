@@ -3,7 +3,7 @@
 This reuses the constants, climate loading, and growth math from
 ``forevertree.py`` unchanged, and overrides only the per-step loop so that the
 independent patches within a step run across a thread pool. On a standard
-(GIL-enabled) CPython this would not parallelize, because the per-tree Decimal
+(GIL-enabled) CPython this would not parallelize, because the per-tree float
 arithmetic holds the GIL; it is meant to be run on a free-threaded build
 (``python3.14t``) with ``PYTHON_GIL=0`` so the GIL stays disabled even after
 ``cftime`` is imported.
@@ -20,7 +20,6 @@ import os
 import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from decimal import Decimal
 
 import numpy as np
 import pandas as pd
