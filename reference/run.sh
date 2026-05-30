@@ -10,7 +10,7 @@ mkdir -p "$OUTPUT_DIR"
 cd "$SCRIPT_DIR"
 
 if [ ! -f temperature.jshd ]; then
-  java -jar "$JAR" preprocess \
+  java -XX:MaxRAMPercentage=90.0 -jar "$JAR" preprocess \
     forevertree.josh Main \
     ../data/maxtemp_synthetic.nc tasmax K \
     temperature.jshd \
@@ -18,7 +18,7 @@ if [ ! -f temperature.jshd ]; then
 fi
 
 if [ ! -f precipitation.jshd ]; then
-  java -jar "$JAR" preprocess \
+  java -XX:MaxRAMPercentage=90.0 -jar "$JAR" preprocess \
     forevertree.josh Main \
     ../data/precip_synthetic.nc pr kgm2s \
     precipitation.jshd \
@@ -33,7 +33,7 @@ if [ "$THREADED" != "true" ]; then
   THREAD_FLAGS+=(--serial-patches)
 fi
 
-java -jar "$JAR" run \
+java -XX:MaxRAMPercentage=90.0 -jar "$JAR" run \
   forevertree.josh Main \
   "--custom-tag=outputDir=$OUTPUT_DIR" \
   "--replicates=$REPLICATES" \

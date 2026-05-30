@@ -1,5 +1,6 @@
-# Josh runtime jar — large (~117M) and auto-downloaded by benchmark.sh
+# Josh runtime jar — large (~117M) and auto-downloaded by setup.sh / benchmark.sh
 joshsim-fat.jar
+joshsim-fat.jar.bak-*
 
 # Josh preprocessing cache (regenerated on first run)
 reference/*.jshd
@@ -10,8 +11,27 @@ reference-mesa/output/
 
 # Benchmark results
 benchmark_results_*.csv
+results_*.csv
+ref100_results.txt
+deploy/fleet.txt
+deploy/results/
 
 # Python
 reference-mesa/.venv/
+reference-mesa/.venv-ft/
 __pycache__/
 *.pyc
+
+# Local AWS CLI install artifacts
+/aws/
+/awscliv2.zip
+
+# Credentials / private keys — NEVER commit (this repo is public)
+*.pem
+*.pem.*
+.env
+.aws/
+
+# Profiling / scratch
+*.jfr
+josh20_*
