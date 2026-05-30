@@ -39,8 +39,12 @@ from forevertree import (
 def _step_patches(model, patches, rng):
     """Advance every tree in a chunk of patches by one step.
 
-    Mirrors ``ForeverTree.step`` / ``ForeverTreeModel.step`` but takes a
-    worker-local ``rng`` so concurrent workers never touch a shared Generator.
+    Mirrors ``ForeverTree.step`` exactly -- the temperature/precipitation impact
+    math is computed *per tree*, not hoisted to once per patch, so this thread
+    pool performs the identical per-tree workload as the serial model and as
+    Josh (whose impacts are organism-level). Only ``rng`` is worker-local so
+    concurrent workers never touch a shared Generator. The threading speedup
+    therefore reflects parallelism alone, not a reduced amount of work.
     """
     get_temp = model.get_temperature
     get_precip = model.get_precipitation
@@ -48,14 +52,13 @@ def _step_patches(model, patches, rng):
     step = model.current_step
     for col, row in patches:
         cell = (col, row)
-        temp_k = ft.D(get_temp(cell, step))
-        precip_mm = ft.D(get_precip(cell, step))
-        temp_pct = _temperature_impact(temp_k)
-        precip_pct = _precipitation_impact(precip_mm)
-        base = DELTA_H_MAX * temp_pct * precip_pct
         for tree in contents([cell]):
+            temp_k = ft.D(get_temp(cell, step))
+            precip_mm = ft.D(get_precip(cell, step))
+            temp_pct = _temperature_impact(temp_k)
+            precip_pct = _precipitation_impact(precip_mm)
             stochastic = ft.D(rng.normal(1.0, STOCHASTIC_STD))
-            tree.height += base * stochastic
+            tree.height += DELTA_H_MAX * temp_pct * precip_pct * stochastic
             tree.age += _ONE
 
 
