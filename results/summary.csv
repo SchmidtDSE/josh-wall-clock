@@ -1,0 +1,5 @@
+implementation,threaded,n,mean_wall_s,min_wall_s,max_wall_s,stddev_wall_s,mean_user_s
+josh,false,10,1521.4,1420.8,1640.4,82.0,2892.3
+josh,true,10,595.2,548.1,639.0,29.7,3918.7
+mesa,false,10,1886.4,1728.1,2135.5,136.4,1886.1
+mesa,true,10,1033.5,961.7,1138.8,66.8,6073.5
