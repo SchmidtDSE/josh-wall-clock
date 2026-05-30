@@ -14,6 +14,10 @@
 #   josh threaded=false  (--serial-patches)
 #   mesa threaded=false  (Python/Decimal is single-threaded)
 #
+# Josh's .jshd preprocessing is rebuilt fresh before each timed Josh run, so the
+# preprocess pass is included in the measured time. It is kept across the N
+# replicates within a single run, never rebuilt between them.
+#
 # Both implementations carry every per-tree quantity in arbitrary-precision
 # decimal arithmetic -- Josh via Java BigDecimal, Mesa via Python's Decimal --
 # so this is an apples-to-apples comparison of the same numeric workload.
@@ -84,7 +88,13 @@ record() {
 
 for i in $(seq 1 "$ITERATIONS"); do
   printf 'iter %2d/%d\n' "$i" "$ITERATIONS"
+  # Rebuild Josh's .jshd preprocessing fresh before each timed Josh run, so the
+  # measured time includes one preprocess pass. It is kept across the N
+  # replicates inside a single run (never rebuilt between them); each of the two
+  # Josh configs gets its own rebuild so their timings are comparable.
+  rm -f "$SCRIPT_DIR"/reference/*.jshd
   record josh true  "$JOSH_RUN" "$REPLICATES" true
+  rm -f "$SCRIPT_DIR"/reference/*.jshd
   record josh false "$JOSH_RUN" "$REPLICATES" false
   record mesa false "$MESA_RUN" "$REPLICATES"
 done

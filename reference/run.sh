@@ -14,7 +14,7 @@ if [ ! -f temperature.jshd ]; then
     forevertree.josh Main \
     ../data/maxtemp_synthetic.nc tasmax K \
     temperature.jshd \
-    2>&1 | grep -v "^May\|WARNING"
+    2>&1 | grep -vE "^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) |WARNING|INFO" || true
 fi
 
 if [ ! -f precipitation.jshd ]; then
@@ -22,7 +22,7 @@ if [ ! -f precipitation.jshd ]; then
     forevertree.josh Main \
     ../data/precip_synthetic.nc pr kgm2s \
     precipitation.jshd \
-    2>&1 | grep -v "^May\|WARNING"
+    2>&1 | grep -vE "^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) |WARNING|INFO" || true
 fi
 
 REPLICATES="${1:-1}"
