@@ -30,8 +30,14 @@ REPLICATES="${REPLICATES:-100}"
 TAG="${TAG:-josh-bench}"
 SG_NAME="${SG_NAME:-josh-bench-sg}"
 
-# One config per machine, assigned round-robin across the fleet.
-CONFIGS=(josh-serial josh-threaded mesa-serial mesa-threaded)
+# One config per machine, assigned round-robin across the fleet. Override the
+# set/order with CONFIGS_OVERRIDE="josh-threaded ..." (space-separated) e.g. for
+# a single-config dry run.
+if [ -n "${CONFIGS_OVERRIDE:-}" ]; then
+  read -r -a CONFIGS <<< "$CONFIGS_OVERRIDE"
+else
+  CONFIGS=(josh-serial josh-threaded mesa-serial mesa-threaded)
+fi
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 FLEET="$HERE/fleet.txt"

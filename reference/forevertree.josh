@@ -3,7 +3,7 @@ start simulation Main
   grid.low = 36.73 degrees latitude, -119.52 degrees longitude
   grid.high = 35.80 degrees latitude, -117.98 degrees longitude
   steps.low = 0 count
-  steps.high = 30 count
+  steps.high = 100 count
   exportFiles.patch = "file:///{outputDir}/results_{replicate}.csv"
 end simulation
 
