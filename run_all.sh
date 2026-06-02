@@ -18,13 +18,17 @@
 # paid once and amortized -- keeping the two sides symmetric. Each implementation
 # also gets a cheap untimed warm-up so the timed run isn't a cold-cache outlier.
 #
-# Usage: ./run_all.sh [replicates]   (default 100)
+# Usage: ./run_all.sh [replicates] [config]   (defaults: 100, all)
+#   config = all | josh-serial | josh-threaded | mesa-serial | mesa-threaded
+#   A single config lets a machine run just one of the four (fleet splits the
+#   four configs across separate machines).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
 REPLICATES="${1:-100}"
+CONFIG="${2:-all}"
 CORES="$(nproc)"
 HOST="$(hostname)"
 OUT="$SCRIPT_DIR/results_${HOST}.csv"
@@ -58,24 +62,50 @@ record() {
 echo "Host=$HOST cores=$CORES replicates=$REPLICATES"
 printf 'hostname,implementation,threaded,replicates,cores,wallSeconds,userSeconds\n' > "$OUT"
 
-# --- Warm-ups (untimed) -----------------------------------------------------
-echo "Warming up..."
-# Build Josh's .jshd cache + warm JVM/FS; reused by both Josh timed runs.
-rm -f "$SCRIPT_DIR"/reference/*.jshd
-"$JOSH_RUN" 1 true >/dev/null 2>&1 || true
-"$MESA_PY" "$MESA_SERIAL" 1 >/dev/null 2>&1 || true
-PYTHON_GIL=0 "$MESA_FT_PY" "$MESA_THREADED" 1 "$CORES" >/dev/null 2>&1 || true
+# Warm (untimed) one config so its timed run isn't a cold-cache outlier. Josh
+# warm-ups also build the .jshd cache.
+warm_config() {
+  case "$1" in
+    josh-serial|josh-threaded)
+      rm -f "$SCRIPT_DIR"/reference/*.jshd
+      "$JOSH_RUN" 1 true >/dev/null 2>&1 || true ;;
+    mesa-serial)
+      "$MESA_PY" "$MESA_SERIAL" 1 >/dev/null 2>&1 || true ;;
+    mesa-threaded)
+      PYTHON_GIL=0 "$MESA_FT_PY" "$MESA_THREADED" 1 "$CORES" >/dev/null 2>&1 || true ;;
+  esac
+}
 
-# --- Timed runs -------------------------------------------------------------
-# Each Josh run rebuilds the .jshd fresh, so its preprocess pass is included in
-# the timing and amortized across the replicates (one preprocess per config).
-echo "Timing $REPLICATES replicates per config..."
-rm -f "$SCRIPT_DIR"/reference/*.jshd
-record josh false "$JOSH_RUN" "$REPLICATES" false
-rm -f "$SCRIPT_DIR"/reference/*.jshd
-record josh true  "$JOSH_RUN" "$REPLICATES" true
-record mesa false "$MESA_PY" "$MESA_SERIAL" "$REPLICATES"
-record mesa true  env PYTHON_GIL=0 "$MESA_FT_PY" "$MESA_THREADED" "$REPLICATES" "$CORES"
+# Time one config. Each Josh config rebuilds .jshd fresh so its preprocess pass
+# is included in the timing and amortized across the replicates.
+time_config() {
+  case "$1" in
+    josh-serial)
+      rm -f "$SCRIPT_DIR"/reference/*.jshd
+      record josh false "$JOSH_RUN" "$REPLICATES" false ;;
+    josh-threaded)
+      rm -f "$SCRIPT_DIR"/reference/*.jshd
+      record josh true  "$JOSH_RUN" "$REPLICATES" true ;;
+    mesa-serial)
+      record mesa false "$MESA_PY" "$MESA_SERIAL" "$REPLICATES" ;;
+    mesa-threaded)
+      record mesa true  env PYTHON_GIL=0 "$MESA_FT_PY" "$MESA_THREADED" "$REPLICATES" "$CORES" ;;
+  esac
+}
+
+case "$CONFIG" in
+  all) CONFIGS=(josh-serial josh-threaded mesa-serial mesa-threaded) ;;
+  josh-serial|josh-threaded|mesa-serial|mesa-threaded) CONFIGS=("$CONFIG") ;;
+  *) echo "Unknown config: $CONFIG" >&2
+     echo "  use: all | josh-serial | josh-threaded | mesa-serial | mesa-threaded" >&2
+     exit 1 ;;
+esac
+
+echo "Warming up (${CONFIGS[*]})..."
+for c in "${CONFIGS[@]}"; do warm_config "$c"; done
+
+echo "Timing $REPLICATES replicates: ${CONFIGS[*]}"
+for c in "${CONFIGS[@]}"; do time_config "$c"; done
 
 echo
 echo "Wrote $OUT"

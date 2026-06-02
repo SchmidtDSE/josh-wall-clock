@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 #
 # End-to-end fleet driver for the Josh-vs-Mesa benchmark using only the AWS CLI
-# and ssh. Launches N EC2 instances, bootstraps each, runs all four configs
-# once at REPLICATES, pulls the per-host CSVs back, and tears the fleet down.
+# and ssh. Launches N EC2 instances, bootstraps each, and assigns ONE of the
+# four configs to each host round-robin (40 hosts => 10 machines per config),
+# runs it at REPLICATES, pulls the per-host CSVs back, and tears the fleet down.
 #
 #   ./deploy/fleet.sh up        # launch + tag instances, write deploy/fleet.txt
 #   ./deploy/fleet.sh run       # clone+setup+launch benchmark on every host
@@ -19,7 +20,7 @@ set -euo pipefail
 
 REGION="${REGION:-us-east-1}"
 INSTANCE_TYPE="${INSTANCE_TYPE:-m7i.2xlarge}"
-COUNT="${COUNT:-10}"
+COUNT="${COUNT:-40}"
 VOLUME_GB="${VOLUME_GB:-512}"
 KEY_NAME="${KEY_NAME:-josh-wallclock}"          # EC2 key pair NAME
 PEM="${PEM:-$HOME/josh-wallclock.pem}"          # local private key file
@@ -28,6 +29,9 @@ REPO_URL="${REPO_URL:-}"                         # public git URL (required for 
 REPLICATES="${REPLICATES:-100}"
 TAG="${TAG:-josh-bench}"
 SG_NAME="${SG_NAME:-josh-bench-sg}"
+
+# One config per machine, assigned round-robin across the fleet.
+CONFIGS=(josh-serial josh-threaded mesa-serial mesa-threaded)
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 FLEET="$HERE/fleet.txt"
@@ -92,9 +96,9 @@ _each_host() {  # _each_host <bash-function-name>
 }
 
 _run_one() {
-  local id="$1" ip="$2"
+  local id="$1" ip="$2" config="$3"
   [ -n "$REPO_URL" ] || { echo "Set REPO_URL." >&2; exit 1; }
-  echo "[$ip] bootstrapping + launching"
+  echo "[$ip] bootstrapping + launching ($config)"
   ssh "${SSH_OPTS[@]}" "$SSH_USER@$ip" bash -s <<EOF
 set -e
 if [ -d josh-wall-profile/.git ]; then cd josh-wall-profile && git pull --ff-only;
@@ -103,8 +107,8 @@ cd ~/josh-wall-profile
 export PATH=\$HOME/.local/bin:\$PATH
 bash setup.sh
 rm -f run_all.done
-setsid bash -c 'bash run_all.sh $REPLICATES > run_all.log 2>&1; touch run_all.done' >/dev/null 2>&1 &
-echo "[$ip] launched"
+setsid bash -c 'bash run_all.sh $REPLICATES $config > run_all.log 2>&1; touch run_all.done' >/dev/null 2>&1 &
+echo "[$ip] launched ($config)"
 EOF
 }
 
@@ -125,7 +129,16 @@ _collect_one() {
     && echo "[$ip] collected" || echo "[$ip] no results yet"
 }
 
-cmd_run()     { _each_host _run_one; }
+cmd_run() {
+  [ -f "$FLEET" ] || { echo "No $FLEET -- run 'up' first." >&2; exit 1; }
+  local i=0 n=${#CONFIGS[@]}
+  while read -r id ip; do
+    [ -n "$ip" ] || continue
+    _run_one "$id" "$ip" "${CONFIGS[$((i % n))]}" &
+    i=$((i + 1))
+  done < "$FLEET"
+  wait
+}
 cmd_status()  { _each_host _status_one; }
 cmd_collect() { _each_host _collect_one; }
 

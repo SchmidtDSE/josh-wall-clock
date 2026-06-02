@@ -44,7 +44,7 @@ PATCH_SIZE_KM = 1.0
 SECONDS_PER_YEAR = 31_536_000
 
 START_YEAR = 2024
-NUM_STEPS = 11
+NUM_STEPS = 31
 
 # Parsed climate arrays, cached per (temp_path, precip_path) so the NetCDF is
 # read and unit-converted once per process and then shared (read-only) across
