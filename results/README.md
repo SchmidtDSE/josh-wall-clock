@@ -5,13 +5,18 @@ ForeverTree simulations, each run in single-threaded and multi-threaded modes.
 
 ## How these were produced
 
-- **Fleet:** 10 × `m7i.2xlarge` (8 vCPU, 32 GiB) on AWS EC2, Ubuntu 24.04.
-- **Per machine:** all four configurations run once at **100 replicates** via
+- **Fleet:** 40 × `m7i.2xlarge` (8 vCPU, 32 GiB) on AWS EC2, Ubuntu 24.04.
+- **One config per machine:** each of the four configurations runs on its own
+  set of **10 machines** (assigned round-robin), once at **100 replicates** via
   [`run_all.sh`](../run_all.sh), bootstrapped by [`setup.sh`](../setup.sh) and
-  orchestrated by [`deploy/fleet.sh`](../deploy/fleet.sh).
-- Josh's `.jshd` preprocessing is built once (untimed) and reused by both Josh
-  configs; each implementation also gets an untimed warm-up before timing.
-- 10 machines × 4 configs = **40 data points** (`all_results.csv`).
+  orchestrated by [`deploy/fleet.sh`](../deploy/fleet.sh). Isolating one config
+  per box means configs never compete for cores on the same machine.
+- **Simulation:** 101 annual timesteps (years 2024–2124), driven by the
+  synthetic climate data in [`data/`](../data) (101-year span, 31 × 50 grid).
+- Josh's `.jshd` preprocessing is built fresh inside each Josh timing (one
+  preprocess per config, amortized across the replicates); each implementation
+  also gets an untimed warm-up before timing.
+- 4 configs × 10 machines = **40 data points** (`all_results.csv`).
 
 ### The four configurations
 
@@ -22,28 +27,28 @@ ForeverTree simulations, each run in single-threaded and multi-threaded modes.
 | mesa | false | CPython 3.12 (with GIL), `forevertree.py` |
 | mesa | true  | free-threaded CPython 3.14t (no-GIL), `forevertree_threaded.py` |
 
-## Summary (mean across 10 machines)
+## Summary (mean across 10 machines per config)
 
 | config | mean wall | min | max | stddev | mean CPU-sec (user) |
 |---|---:|---:|---:|---:|---:|
-| josh threaded | **595.2s** | 548.1 | 639.0 | 29.7 | 3918.7 |
-| mesa threaded | 1033.5s | 961.7 | 1138.8 | 66.8 | 6073.5 |
-| josh serial | 1521.4s | 1420.8 | 1640.4 | 82.0 | 2892.3 |
-| mesa serial | 1886.4s | 1728.1 | 2135.5 | 136.4 | 1886.1 |
+| josh threaded | **5054.3s** (84.2 min) | 4745.7 | 5357.4 | 216.2 | 35341.9 |
+| mesa threaded | 9209.9s (153.5 min) | 8308.4 | 10170.5 | 541.2 | 56100.8 |
+| josh serial | 12862.9s (214.4 min) | 11862.1 | 13755.0 | 586.9 | 26398.2 |
+| mesa serial | 16654.9s (277.6 min) | 15798.0 | 18241.2 | 884.2 | 16640.9 |
 
 ## Takeaways
 
-- **Josh is faster in every comparison.** Threaded: 1.74× faster wall-clock
-  (595s vs 1034s). Serial: 1.24× faster (1521s vs 1886s).
-- **Threading speedup** (serial → threaded): Josh **2.56×**, Mesa **1.83×**.
+- **Josh is faster in every comparison.** Threaded: 1.82× faster wall-clock
+  (5054s vs 9210s). Serial: 1.29× faster (12863s vs 16655s).
+- **Threading speedup** (serial → threaded): Josh **2.54×**, Mesa **1.81×**.
 - **CPU efficiency:** Mesa's free-threading burns far more cores for less gain —
-  Mesa threaded uses 6074 CPU-sec to Josh's 3919, yet is still slower. Mesa's
-  1.83× speedup costs ~3.2× the CPU (1886 → 6074 user-sec), indicating heavy
+  Mesa threaded uses 56101 CPU-sec to Josh's 35342, yet is still slower. Mesa's
+  1.81× speedup costs ~3.4× the CPU (16641 → 56101 user-sec), indicating heavy
   free-threading/synchronization overhead.
-- **Sanity checks pass:** `mesa serial` user ≈ wall (1886 ≈ 1886) → genuinely
-  single-core; `josh serial` runs ~1.9 cores (2892 / 1521) from background JVM
+- **Sanity checks pass:** `mesa serial` user ≈ wall (16641 ≈ 16655) → genuinely
+  single-core; `josh serial` runs ~2.0 cores (26398 / 12863) from background JVM
   GC/JIT threads.
-- Cross-machine variance is low (stddev 2–7% of mean), so the 10-machine
+- Cross-machine variance is low (stddev 4–6% of mean), so the 10-machine
   estimate is stable.
 
 ## Files
@@ -58,8 +63,8 @@ Columns: `hostname,implementation,threaded,replicates,cores,wallSeconds,userSeco
 ```bash
 export REGION=us-east-2
 export REPO_URL=https://github.com/SchmidtDSE/josh-wall-clock.git
-./deploy/fleet.sh up        # launch 10 × m7i.2xlarge
-./deploy/fleet.sh run       # bootstrap + run all four configs at 100 replicates
+./deploy/fleet.sh up        # launch 40 × m7i.2xlarge
+./deploy/fleet.sh run       # bootstrap + run one config per host at 100 replicates
 ./deploy/fleet.sh status    # poll until every host reports DONE
 ./deploy/fleet.sh collect && ./deploy/fleet.sh merge
 ./deploy/fleet.sh down      # terminate the fleet (stops billing)
