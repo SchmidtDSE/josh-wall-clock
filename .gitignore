@@ -35,3 +35,6 @@ __pycache__/
 # Profiling / scratch
 *.jfr
 josh20_*
+
+# Python virtual environment
+venv/

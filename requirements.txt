@@ -1,0 +1,3 @@
+# Charting uses only the standard library plus Sketchingpy.
+# The [static] extra pulls in Pillow for headless PNG rendering.
+sketchingpy[static]
