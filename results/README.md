@@ -1,9 +1,9 @@
 # Benchmark Results — Josh vs. Mesa (ForeverTree)
 
-Wall-clock comparison of the Josh (JVM/BigDecimal) and Mesa (Python/Decimal)
-ForeverTree simulations, each run in single-threaded and multi-threaded modes.
+## Purpose
+Wall-clock comparison of the Josh (JVM/BigDecimal) and Mesa (Python/Decimal) ForeverTree simulations, each run in single-threaded and multi-threaded modes. These are cached results from a cluster-based run.
 
-## How these were produced
+## Conditions
 
 - **Fleet:** 40 × `m7i.2xlarge` (8 vCPU, 32 GiB) on AWS EC2, Ubuntu 24.04.
 - **One config per machine:** each of the four configurations runs on its own
@@ -38,27 +38,20 @@ ForeverTree simulations, each run in single-threaded and multi-threaded modes.
 
 ## Takeaways
 
-- **Josh is faster in every comparison.** Threaded: 1.82× faster wall-clock
-  (5054s vs 9210s). Serial: 1.29× faster (12863s vs 16655s).
+- **Josh is faster in every comparison.** Threaded: 1.82× faster wall-clock (5054s vs 9210s). Serial: 1.29× faster (12863s vs 16655s).
 - **Threading speedup** (serial → threaded): Josh **2.54×**, Mesa **1.81×**.
-- **CPU efficiency:** Mesa's free-threading burns far more cores for less gain —
-  Mesa threaded uses 56101 CPU-sec to Josh's 35342, yet is still slower. Mesa's
-  1.81× speedup costs ~3.4× the CPU (16641 → 56101 user-sec), indicating heavy
-  free-threading/synchronization overhead.
-- **Sanity checks pass:** `mesa serial` user ≈ wall (16641 ≈ 16655) → genuinely
-  single-core; `josh serial` runs ~2.0 cores (26398 / 12863) from background JVM
-  GC/JIT threads.
-- Cross-machine variance is low (stddev 4–6% of mean), so the 10-machine
-  estimate is stable.
+- **CPU efficiency:** Mesa's free-threading burns far more cores for less gain. Mesa threaded uses 56101 CPU-sec to Josh's 35342. Mesa's 1.81× speedup costs ~3.4× the CPU (16641 to 56101 user-sec), indicating heavy free-threading/synchronization overhead.
+- **Sanity checks pass:** `mesa serial` user approx wall (16641 approx 16655) as it is genuinely single-core. Note `josh serial` runs ~2.0 cores (26398 / 12863) from background JVM GC/JIT threads.
+- Cross-machine variance is low (stddev 4–6% of mean), so the 10-machine estimate is stable.
 
 ## Files
 
 - `all_results.csv` — all 40 raw data points, sorted by config then host.
 - `summary.csv` — per-config aggregates (n, mean/min/max/stddev wall, mean user).
 
-Columns: `hostname,implementation,threaded,replicates,cores,wallSeconds,userSeconds`.
+Columns: `hostname,implementation,threaded,replicates,cores,wallSeconds,userSeconds`. See root README.
 
-## Reproducing
+## Usage
 
 ```bash
 export REGION=us-east-2
