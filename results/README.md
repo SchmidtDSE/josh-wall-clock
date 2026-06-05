@@ -1,4 +1,5 @@
 # Benchmark Results — Josh vs. Mesa (ForeverTree)
+Archive of a Josh and Mesa wall clock comparison.
 
 ## Purpose
 Wall-clock comparison of the Josh (JVM/BigDecimal) and Mesa (Python/Decimal) ForeverTree simulations, each run in single-threaded and multi-threaded modes. These are cached results from a cluster-based run.
