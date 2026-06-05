@@ -1,5 +1,7 @@
 # Josh reference implementation
+Implementation of the ForeverTree model using Josh.
 
+## Purpose
 The [Josh](https://www.joshsim.org/) DSL side of the ForeverTree wall-clock benchmark. Josh is a domain-specific language on the JVM; this directory holds the model definition and a script to run it, timed against the equivalent Python/Mesa model in [`../reference-mesa/`](../reference-mesa).
 
 ## Files
