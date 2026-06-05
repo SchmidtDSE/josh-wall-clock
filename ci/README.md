@@ -1,24 +1,15 @@
 # Continuous integration helpers
 
-Fast smoke-test scripts used by the GitHub Actions workflows in
-[`../.github/workflows/`](../.github/workflows). They run each benchmark
-configuration end-to-end at a tiny scale (default 2 replicates, a single
-timestep) purely to prove it still executes and writes output. **These are not
-timing benchmarks** — for real measurements see [`../run_all.sh`](../run_all.sh)
-and [`../deploy/`](../deploy).
+## Purpose
+Fast smoke-test scripts used by the GitHub Actions workflows in [`../.github/workflows/`](../.github/workflows). They run each benchmark configuration end-to-end at a tiny scale. This is purely to prove it still executes and writes output. **These are not timing benchmarks**. For real measurements see [`../run_all.sh`](../run_all.sh) and [`../deploy/`](../deploy).
 
-The reference models are left untouched: Mesa overrides the step count at
-runtime, and Josh (which has no CLI step limit) runs against a temporary 1-step
-copy of `forevertree.josh` that is restored on exit.
+## Notes
+The reference models are left untouched: Mesa overrides the step count at runtime, and Josh (which has no CLI step limit) runs against a temporary 1-step copy of `forevertree.josh` that is restored on exit. Uses default 2 replicates, a single timestep.
 
 ## Files
 
-- `quick_check.sh` — dispatcher for one config. Provisions missing tooling on
-  demand (downloads the Josh jar, creates the `uv` venvs mirroring
-  [`../setup.sh`](../setup.sh)), runs the config, and verifies an output CSV was
-  written.
-- `quick_mesa.py` — imports the real Mesa reference modules unchanged, forces
-  `NUM_STEPS` down to 1, and delegates to their `main()`.
+- `quick_check.sh` — dispatcher for one config. Provisions missing tooling on demand (downloads the Josh jar, creates the `uv` venvs mirroring [`../setup.sh`](../setup.sh)), runs the config, and verifies an output CSV was written.
+- `quick_mesa.py` — imports the real Mesa reference modules unchanged, forces `NUM_STEPS` down to 1, and delegates to their `main()`.
 
 ## Usage
 
@@ -28,9 +19,7 @@ ci/quick_check.sh <config> [replicates]
 #   replicates defaults to 2
 ```
 
-Requires `java` (Josh configs) and `uv` (Mesa configs) on `PATH`; both are
-installed by the workflows via hash-pinned setup actions, or locally by
-[`../setup.sh`](../setup.sh).
+Requires `java` (Josh configs) and `uv` (Mesa configs) on `PATH`; both are installed by the workflows via hash-pinned setup actions, or locally by [`../setup.sh`](../setup.sh).
 
 ## Workflows
 
