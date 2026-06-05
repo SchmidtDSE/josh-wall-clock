@@ -1,4 +1,5 @@
 # Continuous integration helpers
+Scripts to help with GitHub Action CI.
 
 ## Purpose
 Fast smoke-test scripts used by the GitHub Actions workflows in [`../.github/workflows/`](../.github/workflows). They run each benchmark configuration end-to-end at a tiny scale. This is purely to prove it still executes and writes output. **These are not timing benchmarks**. For real measurements see [`../run_all.sh`](../run_all.sh) and [`../deploy/`](../deploy).
