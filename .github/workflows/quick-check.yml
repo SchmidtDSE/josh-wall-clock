@@ -1,0 +1,40 @@
+name: Quick check
+
+# Fast smoke test: run each of the four benchmark configurations end-to-end at a
+# tiny scale (2 replicates, a single timestep) just to prove it still executes
+# and writes output. This is NOT a timing benchmark -- see deploy/ for that.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: ${{ matrix.config }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        config: [josh-serial, josh-threaded, mesa-serial, mesa-threaded]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set up Java
+        if: startsWith(matrix.config, 'josh')
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up uv
+        if: startsWith(matrix.config, 'mesa')
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+
+      - name: Run quick check (2 replicates, 1 step)
+        run: bash ci/quick_check.sh ${{ matrix.config }} 2
