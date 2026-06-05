@@ -1,9 +1,6 @@
 # Josh reference implementation
 
-The [Josh](https://www.joshsim.org/) DSL side of the ForeverTree wall-clock
-benchmark. Josh is a domain-specific language on the JVM; this directory holds
-the model definition and a script to run it, timed against the equivalent
-Python/Mesa model in [`../reference-mesa/`](../reference-mesa).
+The [Josh](https://www.joshsim.org/) DSL side of the ForeverTree wall-clock benchmark. Josh is a domain-specific language on the JVM; this directory holds the model definition and a script to run it, timed against the equivalent Python/Mesa model in [`../reference-mesa/`](../reference-mesa).
 
 ## Files
 
@@ -15,7 +12,7 @@ Python/Mesa model in [`../reference-mesa/`](../reference-mesa).
   define the `kgm2s → mm` precipitation conversion and the `K`/`year` aliases.
 - `run.sh` — preprocess the climate inputs and run the model.
 
-## Running
+## Usage
 
 `run.sh` expects the Josh fat jar at `../joshsim-fat.jar` (provisioned by the
 top-level [`setup.sh`](../setup.sh)). It first preprocesses each NetCDF input in
@@ -28,12 +25,8 @@ top-level [`setup.sh`](../setup.sh)). It first preprocesses each NetCDF input in
 #   threaded = false -> --serial-patches (single-threaded)
 ```
 
-The run passes `--use-float-64` so Josh backs every model quantity with a Java
-`double`, matching the native float used by the Mesa reference and keeping the
-wall-clock comparison clean.
+The run passes `--use-float-64` so Josh backs every model quantity with a Java `double`, matching the native float used by the Mesa reference and keeping the wall-clock comparison clean.
 
 ## Output
 
-One CSV per replicate under `output/` (`results_<replicate>.csv`), with one row
-per patch per year: `year, nTrees, meanAge, meanHeight, temperature,
-precipitation`.
+One CSV per replicate under `output/` (`results_<replicate>.csv`), with one row per patch per year: `year, nTrees, meanAge, meanHeight, temperature, precipitation`. See root README for deatils.
