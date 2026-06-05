@@ -1,10 +1,8 @@
 # Distributed benchmark deployment
+Execute a cluster-based benchmarking suite.
 
-End-to-end driver for running the Josh-vs-Mesa benchmark across an AWS EC2 fleet
-using only the AWS CLI and `ssh`. It launches a fleet, assigns **one config per
-host** round-robin (e.g. 40 hosts → 10 machines per config, so configs never
-compete for cores), runs each at a chosen replicate count, pulls the per-host
-CSVs back, and tears the fleet down.
+## Purpose
+End-to-end driver for running the Josh-vs-Mesa benchmark across an AWS EC2 fleet using only the AWS CLI and `ssh`. It launches a fleet, assigns **one config per host** round-robin (e.g. 40 hosts or 10 machines per config, so configs never compete for cores), runs each at a chosen replicate count, pulls the per-host CSVs back, and tears the fleet down.
 
 ## Files
 
@@ -15,10 +13,7 @@ CSVs back, and tears the fleet down.
 
 ## Prerequisites
 
-Credentials come from your environment / `~/.aws` (run `aws configure` first).
-**Never hard-code keys** — this repo is public. You also need an EC2 key pair
-and its local `.pem` file (`KEY_NAME` / `PEM`), and a public `REPO_URL` for the
-hosts to clone.
+Credentials come from your environment / `~/.aws` (run `aws configure` first). **Never hard-code keys** as this repo is public. You also need an EC2 key pair and its local `.pem` file (`KEY_NAME` / `PEM`), and a public `REPO_URL` for the hosts to clone.
 
 ## Usage
 
