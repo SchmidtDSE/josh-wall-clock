@@ -33,9 +33,12 @@ WIDTH = 1180
 HEIGHT = 732
 
 # Bars use the brand colors; labels use darker shades for WCAG contrast on white.
-COLOR_JOSH = "#157A5C"
-COLOR_MESA = "#6865AE"
-COLOR_DIFF = "#606060"
+# These are deliberately darker than the fill colors below (~8:1+ contrast on
+# white) since even AA-passing shades can read as too light once the legend
+# text is shrunk down for print.
+COLOR_JOSH = "#105B45"
+COLOR_MESA = "#4B497D"
+COLOR_DIFF = "#484848"
 FILL_JOSH = "#1b9e77"  # solid: the distributions don't overlap in practice
 FILL_MESA = "#7570b3"
 FILL_DIFF = "#606060"
