@@ -5,7 +5,7 @@ start simulation Main
     grid.high = 35.80 degrees latitude, -117.98 degrees longitude
 
     steps.low = 0 count
-    steps.high = 3 count
+    steps.high = 100 count
 
     year.init = 2024 count
     year.step = prior.year + 1 count
@@ -77,7 +77,6 @@ start unit years
     alias year
 
 end unit
-
 
 start unit K
 end unit
