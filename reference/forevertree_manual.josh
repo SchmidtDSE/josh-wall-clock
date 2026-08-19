@@ -10,7 +10,7 @@ start simulation Main
     year.init = 2024 count
     year.step = prior.year + 1 count
 
-    exportFiles.patch = "memory://editor/patches"
+    exportFiles.patch = "file:///{outputDir}/results_{replicate}_manual.csv"
 
 end simulation
 
