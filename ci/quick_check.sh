@@ -5,17 +5,18 @@
 # output. This is NOT a timing benchmark -- it leaves the reference models
 # untouched and only shrinks the workload:
 #
-#   * Mesa configs delegate to ci/quick_mesa.py, which overrides NUM_STEPS to 1.
-#   * Josh configs run reference/run.sh against a temporary 1-step copy of
-#     forevertree.josh (Josh has no CLI step limit), restoring the original on
-#     exit.
+#   * Mesa configs delegate to ci/quick_mesa.py, which overrides the step count
+#     to 1.
+#   * Josh configs run reference/run.sh against a temporary 1-step copy of the
+#     model (Josh has no CLI step limit), restoring the original on exit.
 #
 # Missing tooling is provisioned on demand: the Josh jar is downloaded if
 # absent, and each Mesa venv is created with uv if absent (mirroring setup.sh),
 # so this works both in CI and on a fresh local checkout.
 #
 # Usage: ci/quick_check.sh <config> [replicates]
-#   config = josh-serial | josh-threaded | mesa-serial | mesa-threaded
+#   config = josh-ai | josh-ai-parallel | josh-manual | josh-manual-parallel
+#          | mesa-ai | mesa-ai-parallel | mesa-manual | mesa-manual-parallel
 set -euo pipefail
 
 CONFIG="${1:?usage: quick_check.sh <config> [replicates]}"
@@ -56,40 +57,58 @@ ensure_venv() {  # <venv-dir> <python-spec>
   fi
 }
 
-run_josh() {  # <threaded: true|false>
-  local threaded="$1"
+run_josh() {  # <model-file> <threaded: true|false>
+  local model="$1" threaded="$2"
   ensure_jar
-  JOSH_SRC="$REPO_DIR/reference/forevertree.josh"
+  JOSH_SRC="$REPO_DIR/reference/$model"
   JOSH_BACKUP="$(mktemp)"
   cp "$JOSH_SRC" "$JOSH_BACKUP"
   # Single timestep: keep steps.low at 0 and pull steps.high down to 0.
   sed -i 's/^\( *steps\.high *= *\)[0-9][0-9]*\( *count\)/\10\2/' "$JOSH_SRC"
   rm -f "$REPO_DIR"/reference/*.jshd
-  "$REPO_DIR/reference/run.sh" "$REPLICATES" "$threaded"
+  "$REPO_DIR/reference/run.sh" "${model%%.josh}" "$REPLICATES" "$threaded"
 }
 
 case "$CONFIG" in
-  josh-serial)   run_josh false ;;
-  josh-threaded) run_josh true ;;
-  mesa-serial)
+  josh-ai)            run_josh forevertree.josh false ;;
+  josh-ai-parallel)   run_josh forevertree.josh true ;;
+  josh-manual)        run_josh forevertree_manual.josh false ;;
+  josh-manual-parallel) run_josh forevertree_manual.josh true ;;
+  mesa-ai)
     ensure_venv "$MESA_DIR/.venv" 3.12
-    "$MESA_DIR/.venv/bin/python" "$REPO_DIR/ci/quick_mesa.py" serial "$REPLICATES" ;;
-  mesa-threaded)
+    "$MESA_DIR/.venv/bin/python" "$REPO_DIR/ci/quick_mesa.py" ai-serial "$REPLICATES" ;;
+  mesa-ai-parallel)
     ensure_venv "$MESA_DIR/.venv-ft" 3.14t
     PYTHON_GIL=0 "$MESA_DIR/.venv-ft/bin/python" \
-      "$REPO_DIR/ci/quick_mesa.py" threaded "$REPLICATES" "$(nproc)" ;;
+      "$REPO_DIR/ci/quick_mesa.py" ai-threaded "$REPLICATES" "$(nproc)" ;;
+  mesa-manual)
+    ensure_venv "$MESA_DIR/.venv" 3.12
+    cd "$MESA_DIR"
+    "$MESA_DIR/.venv/bin/python" "$REPO_DIR/ci/quick_mesa.py" manual-serial "$REPLICATES" ;;
+  mesa-manual-parallel)
+    ensure_venv "$MESA_DIR/.venv" 3.12
+    cd "$MESA_DIR"
+    "$MESA_DIR/.venv/bin/python" "$REPO_DIR/ci/quick_mesa.py" manual-threaded "$REPLICATES" ;;
   *)
     echo "Unknown config: $CONFIG" >&2
-    echo "  use: josh-serial | josh-threaded | mesa-serial | mesa-threaded" >&2
+    echo "  use: josh-ai | josh-ai-parallel | josh-manual | josh-manual-parallel" >&2
+    echo "       | mesa-ai | mesa-ai-parallel | mesa-manual | mesa-manual-parallel" >&2
     exit 1 ;;
 esac
 
 echo "==> Verifying output"
 shopt -s nullglob
 case "$CONFIG" in
-  josh-*)        outputs=("$REPO_DIR"/reference/output/results_*.csv) ;;
-  mesa-serial)   outputs=("$MESA_DIR"/output/results_*.csv) ;;
-  mesa-threaded) outputs=("$MESA_DIR"/output/results_threaded_*.csv) ;;
+  josh-ai|josh-ai-parallel)
+    # ai output: results_<seed>.csv ; manual output: results_<seed>_manual.csv
+    mapfile -t outputs < <(printf '%s\n' "$REPO_DIR"/reference/output/results_*.csv \
+      | grep -v '_manual') ;;
+  josh-manual|josh-manual-parallel)
+    outputs=("$REPO_DIR"/reference/output/results_*_manual.csv) ;;
+  mesa-ai)        outputs=("$MESA_DIR"/output/results_[0-9]*.csv) ;;
+  mesa-ai-parallel) outputs=("$MESA_DIR"/output/results_threaded_*.csv) ;;
+  mesa-manual)    outputs=("$MESA_DIR"/output/results_manual_*.csv) ;;
+  mesa-manual-parallel) outputs=("$MESA_DIR"/output/results_manual_*_parallel.csv) ;;
 esac
 
 if [ ${#outputs[@]} -eq 0 ]; then

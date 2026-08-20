@@ -1,18 +1,24 @@
 #!/usr/bin/env bash
 #
-# Wall-clock + user-CPU benchmark: Josh (BigDecimal) vs Mesa (Decimal).
+# Wall-clock + user-CPU benchmark: Josh vs Mesa, across the ai and manual
+# implementations, in threaded and non-threaded modes.
 #
 # Each "test" runs one implementation with a given number of replicates, all
 # inside a single process (one JVM for Josh, one Python interpreter for Mesa).
 # This script runs that test ITERATIONS times per configuration, measuring
 # each test's wall-clock and user-CPU time, and appends one row per test to a
 # CSV with columns:
-#   implementation,replicates,threaded,wallClockSeconds,userTimeSeconds
+#   implementation,model,replicates,threaded,wallClockSeconds,userTimeSeconds
 #
-# Three configurations are timed each iteration:
-#   josh threaded=true   (default: patches run in parallel)
-#   josh threaded=false  (--serial-patches)
-#   mesa threaded=false  (Python/Decimal is single-threaded)
+# Eight configurations are timed each iteration:
+#   josh  ai      threaded=true  (parallel patches)
+#   josh  ai      threaded=false (--serial-patches)
+#   josh  manual  threaded=true
+#   josh  manual  threaded=false
+#   mesa  ai      threaded=false (serial)
+#   mesa  ai      threaded=true  (free-threaded 3.14t no-GIL)
+#   mesa  manual  threaded=false (serial, forevertree_manual.py)
+#   mesa  manual  threaded=true  (pathos ProcessPool)
 #
 # Josh's .jshd preprocessing is rebuilt fresh before each timed Josh run, so the
 # preprocess pass is included in the measured time. It is kept across the N
@@ -60,7 +66,7 @@ time_run() {
   printf '%s %s' "$real" "$user"
 }
 
-echo "Benchmark: Josh (BigDecimal) vs Mesa (Decimal)"
+echo "Benchmark: Josh vs Mesa (ai + manual)"
 echo "Replicates per test run: $REPLICATES"
 echo "Test runs per implementation: $ITERATIONS"
 echo "Output file: $OUT_FILE"
@@ -70,33 +76,47 @@ echo
 # warms the JVM / Python / filesystem caches so the first timed run isn't an
 # outlier.
 echo "Warming up..."
-"$JOSH_RUN" "$REPLICATES" true  >/dev/null 2>&1
-"$JOSH_RUN" "$REPLICATES" false >/dev/null 2>&1
-"$MESA_RUN" "$REPLICATES"       >/dev/null 2>&1
+"$JOSH_RUN" ai "$REPLICATES" true    >/dev/null 2>&1
+"$JOSH_RUN" ai "$REPLICATES" false   >/dev/null 2>&1
+"$JOSH_RUN" manual "$REPLICATES" true  >/dev/null 2>&1
+"$JOSH_RUN" manual "$REPLICATES" false >/dev/null 2>&1
+"$MESA_RUN" ai false "$REPLICATES"     >/dev/null 2>&1
+"$MESA_RUN" ai true  "$REPLICATES"     >/dev/null 2>&1
+"$MESA_RUN" manual false "$REPLICATES" >/dev/null 2>&1
+"$MESA_RUN" manual true  "$REPLICATES" >/dev/null 2>&1
 
-printf 'implementation,replicates,threaded,wallClockSeconds,userTimeSeconds\n' > "$OUT_FILE"
+printf 'implementation,model,replicates,threaded,wallClockSeconds,userTimeSeconds\n' > "$OUT_FILE"
 
-# Record one timed test: <impl> <threaded> <run.sh> <args...>
+# Record one timed test: <impl> <model> <threaded> <run.sh> <args...>
 record() {
-  local impl="$1" threaded="$2"; shift 2
+  local impl="$1" model="$2" threaded="$3"; shift 3
   local out wall user
   out=$(time_run "$@")
   wall=${out%% *}; user=${out##* }
-  printf '%s,%s,%s,%s,%s\n' "$impl" "$REPLICATES" "$threaded" "$wall" "$user" >> "$OUT_FILE"
-  printf '  %-5s threaded=%-5s wall=%ss user=%ss\n' "$impl" "$threaded" "$wall" "$user"
+  printf '%s,%s,%s,%s,%s,%s\n' \
+    "$impl" "$model" "$REPLICATES" "$threaded" "$wall" "$user" >> "$OUT_FILE"
+  printf '  %-5s model=%-6s threaded=%-5s wall=%ss user=%ss\n' \
+    "$impl" "$model" "$threaded" "$wall" "$user"
 }
 
 for i in $(seq 1 "$ITERATIONS"); do
   printf 'iter %2d/%d\n' "$i" "$ITERATIONS"
   # Rebuild Josh's .jshd preprocessing fresh before each timed Josh run, so the
   # measured time includes one preprocess pass. It is kept across the N
-  # replicates inside a single run (never rebuilt between them); each of the two
-  # Josh configs gets its own rebuild so their timings are comparable.
+  # replicates inside a single run (never rebuilt between them); each Josh
+  # config gets its own rebuild so their timings are comparable.
   rm -f "$SCRIPT_DIR"/reference/*.jshd
-  record josh true  "$JOSH_RUN" "$REPLICATES" true
+  record josh ai true  "$JOSH_RUN" ai "$REPLICATES" true
   rm -f "$SCRIPT_DIR"/reference/*.jshd
-  record josh false "$JOSH_RUN" "$REPLICATES" false
-  record mesa false "$MESA_RUN" "$REPLICATES"
+  record josh ai false "$JOSH_RUN" ai "$REPLICATES" false
+  rm -f "$SCRIPT_DIR"/reference/*.jshd
+  record josh manual true  "$JOSH_RUN" manual "$REPLICATES" true
+  rm -f "$SCRIPT_DIR"/reference/*.jshd
+  record josh manual false "$JOSH_RUN" manual "$REPLICATES" false
+  record mesa ai false "$MESA_RUN" ai false "$REPLICATES"
+  record mesa ai true  "$MESA_RUN" ai true  "$REPLICATES"
+  record mesa manual false "$MESA_RUN" manual false "$REPLICATES"
+  record mesa manual true  "$MESA_RUN" manual true  "$REPLICATES"
 done
 
 echo

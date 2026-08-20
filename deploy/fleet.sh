@@ -2,7 +2,7 @@
 #
 # End-to-end fleet driver for the Josh-vs-Mesa benchmark using only the AWS CLI
 # and ssh. Launches N EC2 instances, bootstraps each, and assigns ONE of the
-# four configs to each host round-robin (40 hosts => 10 machines per config),
+# eight configs to each host round-robin (80 hosts => 10 machines per config),
 # runs it at REPLICATES, pulls the per-host CSVs back, and tears the fleet down.
 #
 #   ./deploy/fleet.sh up        # launch + tag instances, write deploy/fleet.txt
@@ -20,7 +20,7 @@ set -euo pipefail
 
 REGION="${REGION:-us-east-1}"
 INSTANCE_TYPE="${INSTANCE_TYPE:-m7i.2xlarge}"
-COUNT="${COUNT:-40}"
+COUNT="${COUNT:-80}"
 VOLUME_GB="${VOLUME_GB:-512}"
 KEY_NAME="${KEY_NAME:-josh-wallclock}"          # EC2 key pair NAME
 PEM="${PEM:-$HOME/josh-wallclock.pem}"          # local private key file
@@ -31,12 +31,13 @@ TAG="${TAG:-josh-bench}"
 SG_NAME="${SG_NAME:-josh-bench-sg}"
 
 # One config per machine, assigned round-robin across the fleet. Override the
-# set/order with CONFIGS_OVERRIDE="josh-threaded ..." (space-separated) e.g. for
-# a single-config dry run.
+# set/order with CONFIGS_OVERRIDE="josh-ai ..." (space-separated) e.g. for a
+# single-config dry run.
 if [ -n "${CONFIGS_OVERRIDE:-}" ]; then
   read -r -a CONFIGS <<< "$CONFIGS_OVERRIDE"
 else
-  CONFIGS=(josh-serial josh-threaded mesa-serial mesa-threaded)
+  CONFIGS=(josh-ai josh-ai-parallel josh-manual josh-manual-parallel
+           mesa-ai mesa-ai-parallel mesa-manual mesa-manual-parallel)
 fi
 
 HERE="$(cd "$(dirname "$0")" && pwd)"

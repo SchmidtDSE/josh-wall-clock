@@ -1,7 +1,7 @@
 name: Quick check
 
-# Fast smoke test: run each of the four benchmark configurations end-to-end at a
-# tiny scale (2 replicates, a single timestep) just to prove it still executes
+# Fast smoke test: run each of the eight benchmark configurations end-to-end at
+# a tiny scale (2 replicates, a single timestep) just to prove it still executes
 # and writes output. This is NOT a timing benchmark -- see deploy/ for that.
 
 on:
@@ -20,7 +20,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        config: [josh-serial, josh-threaded, mesa-serial, mesa-threaded]
+        config: [josh-ai, josh-ai-parallel, josh-manual, josh-manual-parallel,
+                 mesa-ai, mesa-ai-parallel, mesa-manual, mesa-manual-parallel]
     steps:
       - name: Check out repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2

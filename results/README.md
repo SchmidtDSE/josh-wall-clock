@@ -2,12 +2,12 @@
 Archive of a Josh and Mesa wall clock comparison.
 
 ## Purpose
-Wall-clock comparison of the Josh (JVM/BigDecimal) and Mesa (Python/Decimal) ForeverTree simulations, each run in single-threaded and multi-threaded modes. These are cached results from a cluster-based run.
+Wall-clock comparison of the Josh (JVM/BigDecimal) and Mesa (Python/Decimal) ForeverTree simulations, each run in single-threaded and multi-threaded modes, for both the AI-generated and hand-written (manual) implementations. These are cached results from a cluster-based run.
 
 ## Conditions
 
-- **Fleet:** 40 × `m7i.2xlarge` (8 vCPU, 32 GiB) on AWS EC2, Ubuntu 24.04.
-- **One config per machine:** each of the four configurations runs on its own
+- **Fleet:** 80 × `m7i.2xlarge` (8 vCPU, 32 GiB) on AWS EC2, Ubuntu 24.04.
+- **One config per machine:** each of the eight configurations runs on its own
   set of **10 machines** (assigned round-robin), once at **100 replicates** via
   [`run_all.sh`](../run_all.sh), bootstrapped by [`setup.sh`](../setup.sh) and
   orchestrated by [`deploy/fleet.sh`](../deploy/fleet.sh). Isolating one config
@@ -17,16 +17,24 @@ Wall-clock comparison of the Josh (JVM/BigDecimal) and Mesa (Python/Decimal) For
 - Josh's `.jshd` preprocessing is built fresh inside each Josh timing (one
   preprocess per config, amortized across the replicates); each implementation
   also gets an untimed warm-up before timing.
-- 4 configs × 10 machines = **40 data points** (`all_results.csv`).
+- 8 configs × 10 machines = **80 data points** (`all_results.csv`).
 
-### The four configurations
+### The eight configurations
 
-| implementation | threaded | description |
-|---|---|---|
-| josh | false | `--serial-patches` (single-threaded) |
-| josh | true  | parallel patches (default) |
-| mesa | false | CPython 3.12 (with GIL), `forevertree.py` |
-| mesa | true  | free-threaded CPython 3.14t (no-GIL), `forevertree_threaded.py` |
+| implementation | model | threaded | description |
+|---|---|---|---|
+| josh | ai | false | `--serial-patches`, `forevertree.josh` |
+| josh | ai | true  | parallel patches, `forevertree.josh` |
+| josh | manual | false | `--serial-patches`, `forevertree_manual.josh` |
+| josh | manual | true  | parallel patches, `forevertree_manual.josh` |
+| mesa | ai | false | CPython (with GIL), `forevertree.py` |
+| mesa | ai | true  | free-threaded CPython 3.14t (no-GIL), `forevertree_threaded.py` |
+| mesa | manual | false | CPython, `forevertree_manual.py` (serial) |
+| mesa | manual | true  | CPython, `forevertree_manual.py` (pathos ProcessPool) |
+
+> **Note:** The summary numbers below are from the earlier four-config archive
+> (ai only). They will be replaced with fresh eight-config aggregates after the
+> next fleet run.
 
 ## Summary (mean across 10 machines per config)
 
@@ -47,17 +55,17 @@ Wall-clock comparison of the Josh (JVM/BigDecimal) and Mesa (Python/Decimal) For
 
 ## Files
 
-- `all_results.csv` — all 40 raw data points, sorted by config then host.
+- `all_results.csv` — all 80 raw data points, sorted by config then host.
 - `summary.csv` — per-config aggregates (n, mean/min/max/stddev wall, mean user).
 
-Columns: `hostname,implementation,threaded,replicates,cores,wallSeconds,userSeconds`. See root README.
+Columns: `hostname,implementation,model,threaded,replicates,cores,wallSeconds,userSeconds`. See root README.
 
 ## Usage
 
 ```bash
 export REGION=us-east-2
 export REPO_URL=https://github.com/SchmidtDSE/josh-wall-clock.git
-./deploy/fleet.sh up        # launch 40 × m7i.2xlarge
+./deploy/fleet.sh up        # launch 80 × m7i.2xlarge
 ./deploy/fleet.sh run       # bootstrap + run one config per host at 100 replicates
 ./deploy/fleet.sh status    # poll until every host reports DONE
 ./deploy/fleet.sh collect && ./deploy/fleet.sh merge

@@ -10,13 +10,14 @@ The reference models are left untouched: Mesa overrides the step count at runtim
 ## Files
 
 - `quick_check.sh` — dispatcher for one config. Provisions missing tooling on demand (downloads the Josh jar, creates the `uv` venvs mirroring [`../setup.sh`](../setup.sh)), runs the config, and verifies an output CSV was written.
-- `quick_mesa.py` — imports the real Mesa reference modules unchanged, forces `NUM_STEPS` down to 1, and delegates to their `main()`.
+- `quick_mesa.py` — imports the real Mesa reference modules unchanged, forces the step count down to 1, and delegates to their `main()` (ai serial, ai threaded, manual serial, manual threaded).
 
 ## Usage
 
 ```sh
 ci/quick_check.sh <config> [replicates]
-#   config = josh-serial | josh-threaded | mesa-serial | mesa-threaded
+#   config = josh-ai | josh-ai-parallel | josh-manual | josh-manual-parallel
+#          | mesa-ai | mesa-ai-parallel | mesa-manual | mesa-manual-parallel
 #   replicates defaults to 2
 ```
 

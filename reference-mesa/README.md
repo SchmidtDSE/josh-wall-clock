@@ -13,21 +13,26 @@ The Python/[Mesa](https://mesa.readthedocs.io/stable/) side of the ForeverTree w
   from `forevertree.py` and overrides only the per-step loop so the independent
   patches in a step run across a thread pool. Meant for a free-threaded CPython
   build (`python3.14t`) with `PYTHON_GIL=0`.
-- `run.sh` — launch the serial model (prefers `./.venv`).
-- `run-ft.sh` — launch the threaded model on the free-threaded interpreter
-  (prefers `./.venv-ft`, exports `PYTHON_GIL=0`).
+- `run.sh` — launch any Mesa variant by (model, threaded) selection. Prefers
+  `./.venv` (falls back to `./venv`); the free-threaded `ai + threaded` path
+  prefers `./.venv-ft`.
 - `requirements.txt` — pinned dependencies (mesa, numpy, pandas, xarray,
-  netCDF4).
+  netCDF4, haversine, pathos).
 
 ## Usage
 The two virtualenvs are normally provisioned by the top-level [`setup.sh`](../setup.sh): `.venv` on CPython 3.12 for the serial config and `.venv-ft` on free-threaded 3.14t for the threaded config.
 
 ```sh
-./run.sh [replicates]              # serial; -> output/results_<seed>.csv
-./run-ft.sh [replicates] [threads] # threaded; -> output/results_threaded_<seed>.csv
+./run.sh ai false [replicates]              # ai serial    -> output/results_<seed>.csv
+./run.sh ai true  [replicates] [threads]    # ai threaded  -> output/results_threaded_<seed>.csv
+./run.sh manual false [replicates]          # manual serial    -> output/results_manual_<seed>.csv
+./run.sh manual true  [replicates]          # manual threaded  -> output/results_manual_<seed>_parallel.csv
 ```
 
-Both scripts honor `PYTHON=/path/to/python` to override the interpreter. Each replicate is produced inside one long-lived process so interpreter and import startup is paid once, mirroring how Josh emits all replicates from a single JVM.
+`ai true` runs `forevertree_threaded.py` on the free-threaded interpreter with
+`PYTHON_GIL=0`; `manual` runs `forevertree_manual.py` (pathos ProcessPool when
+threaded) on the regular interpreter. Override interpreters with `PYTHON=...`
+and `PYTHON_FT=...`.
 
 ## Output
 One CSV per replicate under `output/`, with one row per populated grid cell per year: `cell_id, year, nTrees, meanAge, meanHeight, temperature, precipitation`. See root README for details.
