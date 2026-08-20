@@ -2,7 +2,10 @@ import itertools
 import math
 import random
 
+import haversine
 import mesa
+import netCDF4
+import numpy
 
 MIN_TEMPERATURE = 270
 MAX_TEMPERATURE = 330
@@ -14,20 +17,32 @@ MAX_PRECIPITATION = 500
 PRECIPITATION_RANGE = MAX_PRECIPITATION - MIN_PRECIPITATION
 MID_PRECIPITATION = (MIN_PRECIPITATION + MAX_PRECIPITATION) / 2
 
+MIN_LAT = 35.80
+MAX_LAT = 36.73
+MIN_LON = -119.52
+MAX_LON = -117.98
+CELL_SIZE_KM = 1
+NUM_TIMESTEPS = 101
+
 
 class ForeverTreeModel(mesa.Model):
 
-  def __init__(self, width, height, num_per_space=10, rng=None):
+  def __init__(self, grid_size, temperatures, precipitations, num_per_space=10, rng=None):
     super().__init__(rng=rng)
+    self._grid_size = grid_size
+    self._temperatures = temperatures
+    self._precipitations = precipitations
+    self._step = 0
+
     self._grid = mesa.discrete_space.OrthogonalMooreGrid(
-      (width, height),
+      (grid_size.get_width_cells(), grid_size.get_height_cells()),
       torus=True,
       random=self.random
     )
 
     unique_spaces = itertools.product(
-      range(0, width),
-      range(0, height)
+      range(0, grid_size.get_width_cells()),
+      range(0, grid_size.get_height_cells())
     )
     repeated_agent_spaces = itertools.chain(*map(
       lambda x: [x] * 10,
@@ -35,6 +50,7 @@ class ForeverTreeModel(mesa.Model):
     ))
     spaces = list(repeated_agent_spaces)
     num_agents = len(spaces)
+    print(num_agents)
 
     ForeverTreeAgent.create_agents(
       self,
@@ -44,6 +60,17 @@ class ForeverTreeModel(mesa.Model):
 
   def step(self):
     self.agents.do('grow')
+    self._step += 1
+
+  def get_temperature(self, cell):
+    return self._temperatures.get_value(cell[0], cell[1], self._step)
+
+  def get_precipitation(self, cell):
+    raw_value = self._precipitations.get_value(cell[0], cell[1], self._step)
+    return self._convert_precipitation_to_mm(raw_value)
+
+  def _convert_precipitation_to_mm(self, value):
+    return 31536000 * value
 
 
 
@@ -90,16 +117,150 @@ class ForeverTreeAgent(mesa.discrete_space.CellAgent):
     return random.gauss(mu=1, sigma=0.05)
 
   def _get_temperature(self):
-    return MID_TEMPERATURE
+    return self.model.get_temperature(self._cell)
 
   def _get_precipitation(self):
-    return MID_PRECIPITATION
+    return self.model.get_precipitation(self._cell)
 
+
+class GridSize:
+
+  def __init__(self, start_lat, end_lat, start_lon, end_lon, cell_size_km):
+    self._start_lat = start_lat
+    self._end_lat = end_lat
+    self._start_lon = start_lon
+    self._end_lon = end_lon
+    self._cell_size_km = cell_size_km
+    self._width_km = haversine.haversine(
+      (start_lat, start_lon),
+      (end_lat, start_lon)
+    )
+    self._height_km = haversine.haversine(
+      (start_lat, start_lon),
+      (start_lat, end_lon)
+    )
+    self._width_cells = math.floor(self._width_km / self._cell_size_km)
+    self._height_cells = math.floor(self._height_km / self._cell_size_km)
+  
+  def get_start_lat(self):
+    return self._start_lat
+  
+  def get_end_lat(self):
+    return self._end_lat
+  
+  def get_start_lon(self):
+    return self._start_lon
+  
+  def get_end_lon(self):
+    return self._end_lon
+  
+  def get_cell_size(self):
+    return self._cell_size
+  
+  def get_width_km(self):
+    return self._width_km
+  
+  def get_height_km(self):
+    return self._height_km
+
+  def get_width_cells(self):
+    return self._width_cells
+
+  def get_height_cells(self):
+    return self._height_cells
+
+
+class ClimateVariable:
+
+  def __init__(self, grid_size, net_cdf, variable):
+    self._grid_size = grid_size
+    self._net_cdf = net_cdf
+    self._variable = variable
+
+    variable_size = self._net_cdf[self._variable].shape
+    self._time = variable_size[0]
+    self._y_size = variable_size[1]
+    self._x_size = variable_size[2]
+
+    self._assert_area()
+
+  def get_grid_size(self):
+    return self._grid_size
+
+  def get_native_time(self):
+    return self._time
+
+  def get_native_x_size(self):
+    return self._x_size
+
+  def get_native_y_size(self):
+    return self._y_size
+
+  def get_value(self, x, y, timestep):
+    percent_x = x / self._grid_size.get_width_cells()
+    percent_y = y / self._grid_size.get_height_cells()
+    mapped_x = math.floor(percent_x * self._x_size)
+    mapped_y = math.floor(percent_y * self._y_size)
+    return self._net_cdf.variables[self._variable][timestep, mapped_y, mapped_x]
+
+  def _assert_area(self):
+    assert abs(min(self._net_cdf.variables['lat']) - MIN_LAT) < 0.0001
+    assert abs(max(self._net_cdf.variables['lat']) - MAX_LAT) < 0.0001
+    assert abs(min(self._net_cdf.variables['lon']) - MIN_LON) < 0.0001
+    assert abs(max(self._net_cdf.variables['lon']) - MAX_LON) < 0.0001
+
+
+class PrecomputedClimateVariable:
+
+  def __init__(self, climate_variable, timesteps):
+    self._climate_variable = climate_variable
+
+    max_time = self._climate_variable.get_native_time()
+
+    grid_size = self._climate_variable.get_grid_size()
+    width = grid_size.get_width_cells()
+    height = grid_size.get_height_cells()
+    
+    self._cache = numpy.zeros((width, height, max_time))
+
+    for x in range(0, width):
+      for y in range(0, height):
+        for step in range(0, max_time):
+          self._cache[x, y, step] = self._climate_variable.get_value(x, y, step)
+
+  def get_value(self, x, y, timestep):
+    return self._cache[x, y, timestep]
+
+  def get_grid_size(self):
+    return self._climate_variable.get_grid_size()
+
+  def get_native_time(self):
+    return self._climate_variable.get_native_time()
+
+  def get_native_x_size(self):
+    return self._climate_variable.get_native_x_size()
+
+  def get_native_y_size(self):
+    return self._climate_variable.get_native_y_size()
 
 
 def main():
-  model = ForeverTreeModel(100, 100)
-  for _ in range(0, 101):
+  print('Loading...')
+  grid_size = GridSize(MIN_LAT, MAX_LAT, MIN_LON, MAX_LON, CELL_SIZE_KM)
+  
+  temperatures_raw = netCDF4.Dataset('../data/maxtemp_synthetic.nc', 'r', format="NETCDF4")
+  temperatures_native = ClimateVariable(grid_size, temperatures_raw, 'tasmax')
+  #temperatures = PrecomputedClimateVariable(temperatures_native, NUM_TIMESTEPS)
+  temperatures = temperatures_native
+  
+  precipitations_raw = netCDF4.Dataset('../data/precip_synthetic.nc', 'r', format="NETCDF4")
+  precipitations_native = ClimateVariable(grid_size, precipitations_raw, 'pr')
+  #precipitations = PrecomputedClimateVariable(precipitations_native, NUM_TIMESTEPS)
+  precipitations = precipitations_native
+
+  model = ForeverTreeModel(grid_size, temperatures, precipitations)
+  for step in range(0, NUM_TIMESTEPS):
+    print('Step %d' % step)
     model.step()
 
 

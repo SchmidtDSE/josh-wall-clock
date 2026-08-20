@@ -4,3 +4,4 @@ numpy==2.4.6
 pandas==3.0.3
 xarray==2026.4.0
 netCDF4==1.7.4
+haversine==2.9.0
