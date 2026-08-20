@@ -19,6 +19,22 @@ start patch Default
 
   ForeverTree.init = create 10 count of ForeverTree
 
+  conditionImpact.step = {
+    const temperatureImpact = map
+      external temperature
+      from [270 K, 330 K]
+      to [0%, 100%]
+      quadratic
+
+    const precipitationImpact = map
+      external precipitation
+      from [300 mm, 500 mm]
+      to [0%, 100%]
+      sigmoid
+
+    return temperatureImpact * precipitationImpact
+  }
+
   export.year.step = meta.year
   export.nTrees.step = count(ForeverTree)
   export.meanAge.step = mean(ForeverTree.age)
@@ -36,22 +52,8 @@ start organism ForeverTree
 
   height.init = 0 m
   height.step = {
-    const temperatureImpact = map
-      external temperature
-      from [270 K, 330 K]
-      to [0%, 100%]
-      quadratic
-
-    const precipitationImpact = map
-      external precipitation
-      from [300 mm, 500 mm]
-      to [0%, 100%]
-      sigmoid
-
     const stochasticAdjust = sample normal with mean of 100% std of 5%
-
-    const newGrowth = 1 m * temperatureImpact * precipitationImpact * stochasticAdjust
-
+    const newGrowth = 1 m * here.conditionImpact * stochasticAdjust
     return prior.height + newGrowth
   }
 
