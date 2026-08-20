@@ -221,6 +221,8 @@ class ClimateVariable:
     self._y_size = variable_size[1]
     self._x_size = variable_size[2]
 
+    self._latitudes = net_cdf.variables['lat'][:]
+    self._longitudes = net_cdf.variables['lon'][:]
     self._data = net_cdf.variables[self._variable][:]
 
     self._assert_area()
@@ -238,10 +240,20 @@ class ClimateVariable:
     return self._y_size
 
   def get_value(self, x, y, timestep):
-    percent_x = x / self._grid_size.get_width_cells()
-    percent_y = y / self._grid_size.get_height_cells()
-    mapped_x = math.floor(percent_x * self._x_size)
-    mapped_y = math.floor(percent_y * self._y_size)
+    with_north = haversine.inverse_haversine(
+      (MIN_LAT, MIN_LON),
+      CELL_SIZE_KM,
+      haversine.Direction.NORTH
+    )
+    new_position = haversine.inverse_haversine(
+      with_north,
+      CELL_SIZE_KM,
+      haversine.Direction.EAST
+    )
+
+    mapped_y = numpy.argmin(self._latitudes - new_position[0])
+    mapped_x = numpy.argmin(self._longitudes - new_position[1])
+
     return self._data[timestep, mapped_y, mapped_x]
 
   def _assert_area(self):
