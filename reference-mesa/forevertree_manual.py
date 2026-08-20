@@ -219,6 +219,8 @@ class ClimateVariable:
     self._y_size = variable_size[1]
     self._x_size = variable_size[2]
 
+    self._data = net_cdf.variables[self._variable][:]
+
     self._assert_area()
 
   def get_grid_size(self):
@@ -238,7 +240,7 @@ class ClimateVariable:
     percent_y = y / self._grid_size.get_height_cells()
     mapped_x = math.floor(percent_x * self._x_size)
     mapped_y = math.floor(percent_y * self._y_size)
-    return self._net_cdf.variables[self._variable][timestep, mapped_y, mapped_x]
+    return self._data[timestep, mapped_y, mapped_x]
 
   def _assert_area(self):
     assert abs(min(self._net_cdf.variables['lat']) - MIN_LAT) < 0.0001
@@ -246,6 +248,36 @@ class ClimateVariable:
     assert abs(min(self._net_cdf.variables['lon']) - MIN_LON) < 0.0001
     assert abs(max(self._net_cdf.variables['lon']) - MAX_LON) < 0.0001
 
+
+class CacheClimateVariable:
+
+  def __init__(self, climate_variable):
+    self._last_timestep = None
+    self._climate_variable = climate_variable
+    self._cache = {}
+
+  def get_grid_size(self):
+    return self._climate_variable.get_grid_size()
+
+  def get_native_time(self):
+    return self._climate_variable.get_native_time()
+
+  def get_native_x_size(self):
+    return self._climate_variable.get_native_x_size()
+
+  def get_native_y_size(self):
+    return self._climate_variable.get_native_y_size()
+
+  def get_value(self, x, y, timestep):
+    if self._last_timestep != timestep:
+      self._last_timestep = timestep
+      self._cache = {}
+
+    key = (x, y)
+    if key not in self._cache:
+      self._cache[key] = self._climate_variable.get_value(x, y, timestep)
+
+    return self._cache[key]
 
 
 class ReplicateKit:
@@ -269,11 +301,11 @@ def build_replicate_kit():
   grid_size = GridSize(MIN_LAT, MAX_LAT, MIN_LON, MAX_LON, CELL_SIZE_KM)
   
   temperatures_raw = netCDF4.Dataset('../data/maxtemp_synthetic.nc', 'r', format="NETCDF4")
-  temperatures_native = ClimateVariable(grid_size, temperatures_raw, 'tasmax')
+  temperatures_native = CacheClimateVariable(ClimateVariable(grid_size, temperatures_raw, 'tasmax'))
   temperatures = temperatures_native
   
   precipitations_raw = netCDF4.Dataset('../data/precip_synthetic.nc', 'r', format="NETCDF4")
-  precipitations_native = ClimateVariable(grid_size, precipitations_raw, 'pr')
+  precipitations_native = CacheClimateVariable(ClimateVariable(grid_size, precipitations_raw, 'pr'))
   precipitations = precipitations_native
 
   model = ForeverTreeModel(grid_size, temperatures, precipitations)

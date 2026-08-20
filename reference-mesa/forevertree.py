@@ -353,6 +353,7 @@ class ForeverTreeModel(mesa.Model):
     @rtype: pandas.DataFrame
     """
     for _ in range(NUM_STEPS):
+      print(" > Step %d" % self.current_step)
       self.step()
     return pd.DataFrame(self.records)
 
