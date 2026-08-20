@@ -8,6 +8,7 @@ reference/*.jshd
 # Simulation outputs
 reference/output/
 reference-mesa/output/
+reference-mesa/outputs/
 
 # Benchmark results
 benchmark_results_*.csv
