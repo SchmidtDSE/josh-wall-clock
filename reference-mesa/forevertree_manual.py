@@ -1,6 +1,7 @@
 import csv
 import itertools
 import math
+import multiprocessing
 import random
 import statistics
 import sys
@@ -9,9 +10,10 @@ import haversine
 import mesa
 import netCDF4
 import numpy
+import pathos.pools
 
-USAGE_STR = 'USAGE: python3 forevertree_manual.py [replicates]'
-NUM_ARGS = 1
+USAGE_STR = 'USAGE: python3 forevertree_manual.py [replicates] [threaded] [output]'
+NUM_ARGS = 3
 
 MIN_TEMPERATURE = 270
 MAX_TEMPERATURE = 330
@@ -245,15 +247,25 @@ class ClimateVariable:
     assert abs(max(self._net_cdf.variables['lon']) - MAX_LON) < 0.0001
 
 
-def main():
 
-  if len(sys.argv) != NUM_ARGS + 1:
-    print(USAGE_STR)
-    return
+class ReplicateKit:
 
-  replicates = int(sys.argv[1])
+  def __init__(self, temperatures, precipitations, model):
+    self._temperatures = temperatures
+    self._precipitations = precipitations
+    self._model = model
+  
+  def get_temperatures(self):
+    return self._temperatures
+  
+  def get_precipitations(self):
+    return self._precipitations
+  
+  def get_model(self):
+    return self._model
 
-  print('Loading...')
+
+def build_replicate_kit():
   grid_size = GridSize(MIN_LAT, MAX_LAT, MIN_LON, MAX_LON, CELL_SIZE_KM)
   
   temperatures_raw = netCDF4.Dataset('../data/maxtemp_synthetic.nc', 'r', format="NETCDF4")
@@ -265,18 +277,66 @@ def main():
   precipitations = precipitations_native
 
   model = ForeverTreeModel(grid_size, temperatures, precipitations)
+  return ReplicateKit(temperatures, precipitations, model)
+
+
+def run_replicate(replicate_kit, output_loc):
+  temperatures = replicate_kit.get_temperatures()
+  precipitations = replicate_kit.get_precipitations()
+  model = replicate_kit.get_model()
+
+  with open(output_loc, 'w') as f:
+    writer = csv.DictWriter(f, fieldnames=EXPECTED_FIELDS)
+    writer.writeheader()
+
+    for step in range(0, NUM_TIMESTEPS):
+      print(' > Step %d in %s' % (step, output_loc))
+      model.step()
+      writer.writerows(model.report_data())
+
+
+def main_with_parallel(replicates, output_template):
+  def run_contained_replicate(output_location):
+    kit = build_replicate_kit()
+    run_replicate(kit, output_location)
+    return output_location
+
+  output_locations = map(lambda x: output_template % x, range(0, replicates))
+  num_nodes = multiprocessing.cpu_count() - 1
+  pool = pathos.pools.ProcessPool(nodes=num_nodes)
+
+  for completed_loc in pool.imap(run_contained_replicate, output_locations):
+    print('Completed %s' % completed_loc)
+
+
+def main_without_parallel(replicates, output_template):
+  print('Loading...')
+  kit = build_replicate_kit()
 
   for replicate in range(0, replicates):
     print('Running replicate %d...' % replicate)
+    run_replicate(kit, output_template % replicate)
 
-    with open('./outputs/results_manual_%d.csv' % replicate, 'w') as f:
-      writer = csv.DictWriter(f, fieldnames=EXPECTED_FIELDS)
-      writer.writeheader()
 
-      for step in range(0, NUM_TIMESTEPS):
-        print('  Step %d' % step)
-        model.step()
-        writer.writerows(model.report_data())
+def main():
+
+  if len(sys.argv) != NUM_ARGS + 1:
+    print(USAGE_STR)
+    return
+
+  replicates = int(sys.argv[1])
+  
+  threaded_str = sys.argv[2].lower().strip()
+  threaded = threaded_str == '1' or threaded_str == 't' or threaded_str == 'true'
+
+  output_template = sys.argv[3]
+
+  if threaded:
+    print('Running parallel.')
+    main_with_parallel(replicates, output_template)
+  else:
+    print('Running without parallelism.')
+    main_without_parallel(replicates, output_template)
 
 
 if __name__ == '__main__':
