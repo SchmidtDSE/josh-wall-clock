@@ -78,6 +78,8 @@ class ForeverTreeModel(mesa.Model):
 
   def step(self):
     self.agents.do('grow')
+
+  def move_to_next_step(self):
     self._step += 1
 
   def get_temperature(self, cell):
@@ -297,16 +299,18 @@ class ReplicateKit:
     return self._model
 
 
-def build_replicate_kit():
+def build_replicate_kit(temperatures=None, precipitations=None):
   grid_size = GridSize(MIN_LAT, MAX_LAT, MIN_LON, MAX_LON, CELL_SIZE_KM)
   
-  temperatures_raw = netCDF4.Dataset('../data/maxtemp_synthetic.nc', 'r', format="NETCDF4")
-  temperatures_native = CacheClimateVariable(ClimateVariable(grid_size, temperatures_raw, 'tasmax'))
-  temperatures = temperatures_native
+  if temperatures is None:
+    temperatures_raw = netCDF4.Dataset('../data/maxtemp_synthetic.nc', 'r', format="NETCDF4")
+    temperatures_no_cache = ClimateVariable(grid_size, temperatures_raw, 'tasmax')
+    temperatures = CacheClimateVariable(temperatures_no_cache)
   
-  precipitations_raw = netCDF4.Dataset('../data/precip_synthetic.nc', 'r', format="NETCDF4")
-  precipitations_native = CacheClimateVariable(ClimateVariable(grid_size, precipitations_raw, 'pr'))
-  precipitations = precipitations_native
+  if precipitations is None:
+    precipitations_raw = netCDF4.Dataset('../data/precip_synthetic.nc', 'r', format="NETCDF4")
+    precipitations_no_cache = ClimateVariable(grid_size, precipitations_raw, 'pr')
+    precipitations = CacheClimateVariable(precipitations_no_cache)
 
   model = ForeverTreeModel(grid_size, temperatures, precipitations)
   return ReplicateKit(temperatures, precipitations, model)
@@ -325,6 +329,7 @@ def run_replicate(replicate_kit, output_loc):
       print(' > Step %d in %s' % (step, output_loc))
       model.step()
       writer.writerows(model.report_data())
+      model.move_to_next_step()
 
 
 def main_with_parallel(replicates, output_template):
@@ -348,6 +353,10 @@ def main_without_parallel(replicates, output_template):
   for replicate in range(0, replicates):
     print('Running replicate %d...' % replicate)
     run_replicate(kit, output_template % replicate)
+
+    temperatures = kit.get_temperatures()
+    precipitations = kit.get_precipitations()
+    kit = build_replicate_kit(temperatures=temperatures, precipitations=precipitations)
 
 
 def main():
