@@ -1,11 +1,17 @@
+import csv
 import itertools
 import math
 import random
+import statistics
+import sys
 
 import haversine
 import mesa
 import netCDF4
 import numpy
+
+USAGE_STR = 'USAGE: python3 forevertree_manual.py [replicates]'
+NUM_ARGS = 1
 
 MIN_TEMPERATURE = 270
 MAX_TEMPERATURE = 330
@@ -23,6 +29,17 @@ MIN_LON = -119.52
 MAX_LON = -117.98
 CELL_SIZE_KM = 1
 NUM_TIMESTEPS = 101
+
+START_YEAR = 2024
+
+EXPECTED_FIELDS = [
+  'year',
+  'nTrees',
+  'meanAge',
+  'meanHeight',
+  'temperature',
+  'precipitation'
+]
 
 
 class ForeverTreeModel(mesa.Model):
@@ -50,7 +67,6 @@ class ForeverTreeModel(mesa.Model):
     ))
     spaces = list(repeated_agent_spaces)
     num_agents = len(spaces)
-    print(num_agents)
 
     ForeverTreeAgent.create_agents(
       self,
@@ -69,6 +85,22 @@ class ForeverTreeModel(mesa.Model):
     raw_value = self._precipitations.get_value(cell[0], cell[1], self._step)
     return self._convert_precipitation_to_mm(raw_value)
 
+  def report_data(self):
+    grouped_agents_nested = itertools.groupby(self.agents, key=lambda x: x.get_cell())
+    grouped_agents = map(lambda x: list(x[1]), grouped_agents_nested)
+    return map(lambda agents: self._report_cell_data(agents), grouped_agents)
+  
+  def _report_cell_data(self, agents):
+    first_agent = agents[0]
+    return {
+      'year': self._step + START_YEAR,
+      'nTrees': len(agents),
+      'meanAge': statistics.mean(map(lambda x: x.get_age(), agents)),
+      'meanHeight': statistics.mean(map(lambda x: x.get_height(), agents)),
+      'temperature': self.get_temperature(first_agent.get_cell()),
+      'precipitation': self.get_precipitation(first_agent.get_cell())
+    }
+
   def _convert_precipitation_to_mm(self, value):
     return 31536000 * value
 
@@ -86,6 +118,9 @@ class ForeverTreeAgent(mesa.discrete_space.CellAgent):
   def grow(self):
     self._age += 1
     self._height += self._get_new_growth()
+
+  def get_cell(self):
+    return self._cell
 
   def get_age(self):
     return self._age
@@ -210,58 +245,38 @@ class ClimateVariable:
     assert abs(max(self._net_cdf.variables['lon']) - MAX_LON) < 0.0001
 
 
-class PrecomputedClimateVariable:
-
-  def __init__(self, climate_variable, timesteps):
-    self._climate_variable = climate_variable
-
-    max_time = self._climate_variable.get_native_time()
-
-    grid_size = self._climate_variable.get_grid_size()
-    width = grid_size.get_width_cells()
-    height = grid_size.get_height_cells()
-    
-    self._cache = numpy.zeros((width, height, max_time))
-
-    for x in range(0, width):
-      for y in range(0, height):
-        for step in range(0, max_time):
-          self._cache[x, y, step] = self._climate_variable.get_value(x, y, step)
-
-  def get_value(self, x, y, timestep):
-    return self._cache[x, y, timestep]
-
-  def get_grid_size(self):
-    return self._climate_variable.get_grid_size()
-
-  def get_native_time(self):
-    return self._climate_variable.get_native_time()
-
-  def get_native_x_size(self):
-    return self._climate_variable.get_native_x_size()
-
-  def get_native_y_size(self):
-    return self._climate_variable.get_native_y_size()
-
-
 def main():
+
+  if len(sys.argv) != NUM_ARGS + 1:
+    print(USAGE_STR)
+    return
+
+  replicates = int(sys.argv[1])
+
   print('Loading...')
   grid_size = GridSize(MIN_LAT, MAX_LAT, MIN_LON, MAX_LON, CELL_SIZE_KM)
   
   temperatures_raw = netCDF4.Dataset('../data/maxtemp_synthetic.nc', 'r', format="NETCDF4")
   temperatures_native = ClimateVariable(grid_size, temperatures_raw, 'tasmax')
-  #temperatures = PrecomputedClimateVariable(temperatures_native, NUM_TIMESTEPS)
   temperatures = temperatures_native
   
   precipitations_raw = netCDF4.Dataset('../data/precip_synthetic.nc', 'r', format="NETCDF4")
   precipitations_native = ClimateVariable(grid_size, precipitations_raw, 'pr')
-  #precipitations = PrecomputedClimateVariable(precipitations_native, NUM_TIMESTEPS)
   precipitations = precipitations_native
 
   model = ForeverTreeModel(grid_size, temperatures, precipitations)
-  for step in range(0, NUM_TIMESTEPS):
-    print('Step %d' % step)
-    model.step()
+
+  for replicate in range(0, replicates):
+    print('Running replicate %d...' % replicate)
+
+    with open('./outputs/results_manual_%d.csv' % replicate, 'w') as f:
+      writer = csv.DictWriter(f, fieldnames=EXPECTED_FIELDS)
+      writer.writeheader()
+
+      for step in range(0, NUM_TIMESTEPS):
+        print('  Step %d' % step)
+        model.step()
+        writer.writerows(model.report_data())
 
 
 if __name__ == '__main__':
