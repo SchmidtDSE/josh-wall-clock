@@ -86,8 +86,7 @@ class ForeverTreeModel(mesa.Model):
     return self._temperatures.get_value(cell[0], cell[1], self._step)
 
   def get_precipitation(self, cell):
-    raw_value = self._precipitations.get_value(cell[0], cell[1], self._step)
-    return self._convert_precipitation_to_mm(raw_value)
+    return self._precipitations.get_value(cell[0], cell[1], self._step)
 
   def report_data(self):
     grouped_agents_nested = itertools.groupby(self.agents, key=lambda x: x.get_cell())
@@ -105,9 +104,24 @@ class ForeverTreeModel(mesa.Model):
       'precipitation': self.get_precipitation(first_agent.get_cell())
     }
 
+
+class ImpactGetter:
+
+  def get_temperature_impact(self, temperature):
+    temperature_offset = temperature - MID_TEMPERATURE
+    temperature_percent = temperature_offset / TEMPERATURE_RANGE
+    parabolic_value = (temperature_percent ** 2) * 4
+    return 1 - parabolic_value
+
+  def get_precipitation_impact(self, precipitation_raw):
+    precipitation = self._convert_precipitation_to_mm(precipitation_raw)
+    precipitation_offset = precipitation - MID_PRECIPITATION
+    precipitation_percent = precipitation_offset / PRECIPITATION_RANGE
+    exp_value = math.exp(-1 * precipitation_percent * 10)
+    return 1 / (1 + exp_value)
+
   def _convert_precipitation_to_mm(self, value):
     return 31536000 * value
-
 
 
 class ForeverTreeAgent(mesa.discrete_space.CellAgent):
@@ -133,24 +147,10 @@ class ForeverTreeAgent(mesa.discrete_space.CellAgent):
     return self._height
 
   def _get_new_growth(self):
-    temperature_impact = self._get_temperature_impact()
-    precipitation_impact = self._get_precipitation_impact()
+    temperature_impact = self._get_temperature()
+    precipitation_impact = self._get_precipitation()
     stochastic_adjust = self._get_stochastic_adjust()
     return temperature_impact * precipitation_impact * stochastic_adjust
-
-  def _get_temperature_impact(self):
-    temperature = self._get_temperature()
-    temperature_offset = temperature - MID_TEMPERATURE
-    temperature_percent = temperature_offset / TEMPERATURE_RANGE
-    parabolic_value = (temperature_percent ** 2) * 4
-    return 1 - parabolic_value
-
-  def _get_precipitation_impact(self):
-    precipitation = self._get_precipitation()
-    precipitation_offset = precipitation - MID_PRECIPITATION
-    precipitation_percent = precipitation_offset / PRECIPITATION_RANGE
-    exp_value = math.exp(-1 * precipitation_percent * 10)
-    return 1 / (1 + exp_value)
 
   def _get_stochastic_adjust(self):
     return random.gauss(mu=1, sigma=0.05)
@@ -263,6 +263,30 @@ class ClimateVariable:
     assert abs(max(self._net_cdf.variables['lon']) - MAX_LON) < 0.0001
 
 
+class TransformClimateVariable:
+
+  def __init__(self, climate_variable, transformer):
+    self._last_timestep = None
+    self._climate_variable = climate_variable
+    self._transformer = transformer
+
+  def get_grid_size(self):
+    return self._climate_variable.get_grid_size()
+
+  def get_native_time(self):
+    return self._climate_variable.get_native_time()
+
+  def get_native_x_size(self):
+    return self._climate_variable.get_native_x_size()
+
+  def get_native_y_size(self):
+    return self._climate_variable.get_native_y_size()
+
+  def get_value(self, x, y, timestep):
+    value = self._climate_variable.get_value(x, y, timestep)
+    return self._transformer(value)
+
+
 class CacheClimateVariable:
 
   def __init__(self, climate_variable):
@@ -313,16 +337,26 @@ class ReplicateKit:
 
 def build_replicate_kit(temperatures=None, precipitations=None):
   grid_size = GridSize(MIN_LAT, MAX_LAT, MIN_LON, MAX_LON, CELL_SIZE_KM)
+
+  impact_getter = ImpactGetter()
   
   if temperatures is None:
     temperatures_raw = netCDF4.Dataset('../data/maxtemp_synthetic.nc', 'r', format="NETCDF4")
     temperatures_no_cache = ClimateVariable(grid_size, temperatures_raw, 'tasmax')
-    temperatures = CacheClimateVariable(temperatures_no_cache)
+    temperatures_transformed = TransformClimateVariable(
+      temperatures_no_cache,
+      lambda x: impact_getter.get_temperature_impact(x)
+    )
+    temperatures = CacheClimateVariable(temperatures_transformed)
   
   if precipitations is None:
     precipitations_raw = netCDF4.Dataset('../data/precip_synthetic.nc', 'r', format="NETCDF4")
     precipitations_no_cache = ClimateVariable(grid_size, precipitations_raw, 'pr')
-    precipitations = CacheClimateVariable(precipitations_no_cache)
+    precipitations_transformed = TransformClimateVariable(
+      precipitations_no_cache,
+      lambda x: impact_getter.get_precipitation_impact(x)
+    )
+    precipitations = CacheClimateVariable(precipitations_transformed)
 
   model = ForeverTreeModel(grid_size, temperatures, precipitations)
   return ReplicateKit(temperatures, precipitations, model)
