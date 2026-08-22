@@ -26,7 +26,7 @@ REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_DIR"
 
 JAR="$REPO_DIR/joshsim-fat.jar"
-JAR_URL="https://www.joshsim.org/dist/dev/joshsim-fat.jar"
+JAR_URL="https://www.joshsim.org/dist/freeze/josh-wall-clock-snapshot-202608.jar"
 MESA_DIR="$REPO_DIR/reference-mesa"
 
 # Restore the (temporarily shrunk) Josh model on exit. Globals, so the EXIT
@@ -66,7 +66,14 @@ run_josh() {  # <model-file> <threaded: true|false>
   # Single timestep: keep steps.low at 0 and pull steps.high down to 0.
   sed -i 's/^\( *steps\.high *= *\)[0-9][0-9]*\( *count\)/\10\2/' "$JOSH_SRC"
   rm -f "$REPO_DIR"/reference/*.jshd
-  "$REPO_DIR/reference/run.sh" "${model%%.josh}" "$REPLICATES" "$threaded"
+  # run.sh selects the model via a manual|ai selector, not the filename.
+  local selector
+  case "$model" in
+    forevertree.josh)       selector=ai ;;
+    forevertree_manual.josh) selector=manual ;;
+    *) echo "Unknown Josh model: $model" >&2; exit 1 ;;
+  esac
+  "$REPO_DIR/reference/run.sh" "$selector" "$REPLICATES" "$threaded"
 }
 
 case "$CONFIG" in
