@@ -51,7 +51,7 @@ Requires Java (for the Josh jar), Python **3.12** and **3.14t** (the pinned mesa
 bash setup.sh
 ```
 
-It installs a JRE, [uv](https://docs.astral.sh/uv/) (interpreter + venv manager), the Josh runtime jar, and the two Mesa virtualenvs (`reference-mesa/.venv` on 3.12 for serial Mesa, `reference-mesa/.venv-ft` on 3.14t no-GIL for threaded Mesa). The Josh jar is otherwise fetched on demand by `benchmark.sh`/`run_all.sh` from `https://www.joshsim.org/dist/dev/`, and the first Josh run preprocesses the climate inputs into cached `.jshd` files.
+It installs a JRE, [uv](https://docs.astral.sh/uv/) (interpreter + venv manager), the Josh runtime jar, and the two Mesa virtualenvs (`reference-mesa/.venv` on 3.12 for serial Mesa, `reference-mesa/.venv-ft` on 3.14t no-GIL for threaded Mesa). The Josh jar is fetched by `setup.sh` from `https://www.joshsim.org/dist/freeze/josh-wall-clock-snapshot-202608.jar`, and the first Josh run preprocesses the climate inputs into cached `.jshd` files.
 
 The visualization is independent of the benchmark and uses only the Python standard library plus Sketchingpy:
 

@@ -31,7 +31,7 @@ export PATH="$HOME/.local/bin:$PATH"
 echo "==> Fetching Josh runtime jar (if missing)"
 JAR="$SCRIPT_DIR/joshsim-fat.jar"
 if [ ! -f "$JAR" ]; then
-  curl -fSL "https://www.joshsim.org/dist/dev/joshsim-fat.jar" -o "$JAR"
+  curl -fSL "https://www.joshsim.org/dist/freeze/josh-wall-clock-snapshot-202608.jar" -o "$JAR"
 fi
 
 echo "==> Creating Mesa serial venv (Python 3.12)"

@@ -1,24 +1,27 @@
-"""Render a comparison chart of Josh vs. Mesa wall-clock benchmark trials.
+"""Render a comparison chart of Josh vs. Mesa wall-time benchmark trials.
 
 The figure has two rows (top = threaded, bottom = non-threaded). Each row shows,
-on the left, overlaid semi-transparent histograms of the individual trials and,
-on the right, average-time bars for Josh, Mesa, and the time Josh saved (labeled
-with the percent reduction).
+on the left, one marker per trial stacked up from a wall-time baseline, and on
+the right, average-time bars for the ai and expert models.
+
+Each left-panel marker encodes two dimensions:
+  *   shape: square = ai model, circle = expert (manual) model
+  *   color: green = Josh, purple = Mesa
+A circle is drawn on top of a square whenever both land in the same time bucket,
+so both remain visible. A count axis on the far left shows how many trials are
+stacked in each bucket.
+
+The right panel shows two columns -- ai and expert -- each with a Josh and a
+Mesa bar on a shared 0-300 minute axis. Each bar's label is left-aligned with
+the mean time in parentheses, and the bar sits directly below.
 
 Only the Python standard library and Sketchingpy are used.
-
-@var RESULTS_CSV: Path to the aggregated benchmark results CSV.
-@var OUTPUT_PNG: Path the rendered figure is written to.
-@var WIDTH: Figure width in pixels.
-@var HEIGHT: Figure height in pixels.
-@var BIN_WIDTH: Histogram bin width in minutes.
-@var FONT: Resolved path to the body font.
-@var FONT_BOLD: Resolved path to the bold font (same face as L{FONT}).
 """
 
 import csv
 import math
 import os
+from collections import defaultdict
 
 import sketchingpy
 
@@ -29,17 +32,13 @@ OUTPUT_PNG = os.path.join(os.path.dirname(__file__), "draw_hist.png")
 
 # --- Appearance -------------------------------------------------------------
 
-WIDTH = 1180
-HEIGHT = 732
+WIDTH = 1320
+HEIGHT = 720
 
-# Bars use the brand colors; labels use darker shades for WCAG contrast on white.
-# These are deliberately darker than the fill colors below (~8:1+ contrast on
-# white) since even AA-passing shades can read as too light once the legend
-# text is shrunk down for print.
 COLOR_JOSH = "#105B45"
 COLOR_MESA = "#4B497D"
 COLOR_DIFF = "#484848"
-FILL_JOSH = "#1b9e77"  # solid: the distributions don't overlap in practice
+FILL_JOSH = "#1b9e77"
 FILL_MESA = "#7570b3"
 FILL_DIFF = "#606060"
 COLOR_BG = "#FFFFFF"
@@ -47,14 +46,28 @@ COLOR_INK = "#1a1a1a"
 COLOR_MUTED = "#6b6b6b"
 COLOR_BASELINE = "#cccccc"
 
-BIN_WIDTH = 5  # minutes
+BIN_WIDTH = 10  # minutes (larger buckets so markers touch horizontally)
 
-# Histograms (left) share one minute axis; average bars (right) share another.
-LEFT_X0, LEFT_X1 = 84, 688
-RIGHT_X0, RIGHT_X1 = 792, 1140
-TOP_Y0, TOP_Y1 = 124, 356
-BOT_Y0, BOT_Y1 = 428, 660
-ROW_LABEL_X = 29
+# Left panel (distribution) geometry.
+LEFT_X0, LEFT_X1 = 84, 650
+RIGHT_X0, RIGHT_X1 = 700, 1240
+COLUMN_GAP = 40
+TOP_Y0, TOP_Y1 = 160, 316
+BOT_Y0, BOT_Y1 = 436, 592
+ROW_LABEL_X = 26
+COUNT_AXIS_X = 56
+LEGEND_Y = 675
+
+MARKER_SIZE = 9        # diameter of a circle / side of a square
+MARKER_PITCH = 11      # vertical step between stacked markers
+MARKER_BASE_OFFSET = 8 # how far above the baseline the first marker sits
+
+# Right-panel bar geometry. Both columns share a 0-300 minute scale.
+RIGHT_MAX = 300.0
+GROUP_W = (RIGHT_X1 - RIGHT_X0 - COLUMN_GAP) / 2.0
+BAR_H = 8
+BAR_SLOT = 26
+GROUP_LABEL_Y = 44
 
 # All text uses Lato Regular.
 _FONT_CANDIDATES = [
@@ -84,399 +97,318 @@ FONT_BOLD = FONT
 
 
 def load_trials(path):
-  """Group trial wall times by implementation and threading condition.
+  """Group trial wall times by (implementation, model, threaded).
 
-  @param path: Path to the results CSV.
-  @type path: str
-  @return: Map of C{(implementation, threaded)} to lists of wall minutes.
-  @rtype: dict of (tuple of str) to (list of float)
+  :param path: Path to the results CSV.
+  :return: Map of (implementation, model, threaded) to lists of wall minutes.
   """
   groups = {}
   with open(path, newline="") as handle:
     for row in csv.DictReader(handle):
-      key = (row["implementation"], row["threaded"])
+      key = (row["implementation"], row["model"], row["threaded"])
       minutes = float(row["wallSeconds"]) / 60.0
       groups.setdefault(key, []).append(minutes)
   return groups
 
 
-def histogram(values, edges):
-  """Bin values into per-bin counts (each bin is C{[edge, edge+width)}).
+def _mean(values):
+  """Return the mean of a sequence, or 0.0 when empty.
 
-  @param values: The values (in minutes) to bin.
-  @type values: list of float
-  @param edges: The left edge of each bin, spaced L{BIN_WIDTH} apart.
-  @type edges: list of float
-  @return: One count per bin, aligned with C{edges}.
-  @rtype: list of int
+  :param values: The values to average.
+  :return: The arithmetic mean, or 0.0.
   """
-  counts = [0] * len(edges)
-  for value in values:
-    index = int((value - edges[0]) // BIN_WIDTH)
-    index = max(0, min(index, len(edges) - 1))
-    counts[index] += 1
-  return counts
+  return sum(values) / len(values) if values else 0.0
 
 
-# --- Layout / shared scales -------------------------------------------------
+def _bin_for(minutes, edges):
+  """Return the bin index a minute falls into, clamped to C{edges}.
+
+  :param minutes: A wall time in minutes.
+  :param edges: The left edge of each bin.
+  :return: The 0-based bin index.
+  """
+  index = int((minutes - edges[0]) // BIN_WIDTH)
+  return max(0, min(index, len(edges) - 1))
 
 
 class Layout:
-  """Pixel geometry and the minute/percent scales shared across presenters.
+  """Pixel geometry and the shared minute scales across rows.
 
-  @ivar x_lo: Low end of the histogram minute axis.
-  @type x_lo: float
-  @ivar x_hi: High end of the histogram minute axis.
-  @type x_hi: float
-  @ivar y_max: Top of the histogram percent axis.
-  @type y_max: float
-  @ivar right_max: Top of the average-bar minute axis.
-  @type right_max: float
-  @ivar edges: Left edge of each histogram bin.
-  @type edges: list of float
+  @ivar x_lo: Low end of the left minute axis.
+  @ivar x_hi: High end of the left minute axis.
+  @ivar edges: Left edge of each minute bin for the left panel.
+  @ivar right_max: Fixed right-bar minute axis maximum (0-300).
   """
 
-  def __init__(self, x_lo, x_hi, y_max, right_max, edges):
-    """Store the shared axis bounds and bin edges.
-
-    @param x_lo: Low end of the histogram minute axis.
-    @type x_lo: float
-    @param x_hi: High end of the histogram minute axis.
-    @type x_hi: float
-    @param y_max: Top of the histogram percent axis.
-    @type y_max: float
-    @param right_max: Top of the average-bar minute axis.
-    @type right_max: float
-    @param edges: Left edge of each histogram bin.
-    @type edges: list of float
-    """
+  def __init__(self, x_lo, x_hi, edges):
     self.x_lo = x_lo
     self.x_hi = x_hi
-    self.y_max = y_max
-    self.right_max = right_max
     self.edges = edges
+    self.right_max = RIGHT_MAX
 
   def left_x(self, minutes):
-    """Map a minute value to an x pixel on the left (histogram) axis.
-
-    @param minutes: A value on the histogram minute axis.
-    @type minutes: float
-    @return: The corresponding x pixel.
-    @rtype: float
-    """
+    """Map a minute value to an x pixel on the left axis."""
     span = self.x_hi - self.x_lo
     return LEFT_X0 + (minutes - self.x_lo) / span * (LEFT_X1 - LEFT_X0)
 
-  def right_x(self, minutes):
-    """Map a minute value to an x pixel on the right (average) axis.
 
-    @param minutes: A value on the average-bar minute axis.
-    @type minutes: float
-    @return: The corresponding x pixel.
-    @rtype: float
-    """
-    return RIGHT_X0 + (minutes / self.right_max) * (RIGHT_X1 - RIGHT_X0)
+class DistributionPanel:
+  """Left side of one row: one marker per trial stacked up by wall time."""
 
-  def hist_y(self, pct, baseline, plot_h):
-    """Map a percent value to a y pixel within a histogram band.
-
-    @param pct: A value on the histogram percent axis.
-    @type pct: float
-    @param baseline: The y pixel of the band's zero line.
-    @type baseline: float
-    @param plot_h: The drawable height of the band in pixels.
-    @type plot_h: float
-    @return: The corresponding y pixel.
-    @rtype: float
-    """
-    return baseline - (pct / self.y_max) * plot_h
-
-
-# --- Presenters -------------------------------------------------------------
-
-
-class HistogramPresenter:
-  """Left side of one row: overlaid Josh/Mesa histograms with a grid."""
-
-  def __init__(self, sketch, layout, josh, mesa, band_y0, band_y1):
-    """Capture the sketch, scales, series, and band geometry.
-
-    @param sketch: The Sketchingpy surface to draw on.
-    @type sketch: sketchingpy.Sketch2DStatic
-    @param layout: The shared axis scales.
-    @type layout: L{Layout}
-    @param josh: Josh trial wall times in minutes.
-    @type josh: list of float
-    @param mesa: Mesa trial wall times in minutes.
-    @type mesa: list of float
-    @param band_y0: Top y pixel of this row's band.
-    @type band_y0: float
-    @param band_y1: Bottom y pixel of this row's band (the baseline).
-    @type band_y1: float
-    """
+  def __init__(self, sketch, layout, series, band_y0, band_y1):
     self._sketch = sketch
     self._layout = layout
-    self._josh = josh
-    self._mesa = mesa
     self._baseline = band_y1
-    self._plot_h = (band_y1 - band_y0) - 22
+    self._top_y = band_y0
+    self._series = series
+    self._max_count = 0
+
+  def _y_for_count(self, count):
+    """Return the y pixel for a stacked count (0 = baseline).
+
+    :param count: The number of markers stacked (0-based height).
+    :return: The y pixel of that stack position.
+    """
+    if count <= 0:
+      return self._baseline
+    return self._baseline - MARKER_BASE_OFFSET - (count - 1) * MARKER_PITCH
 
   def draw(self):
-    """Draw the baseline, both series, and the negative-space grid."""
-    self._draw_baseline()
-    self._draw_series(self._josh, FILL_JOSH)
-    self._draw_series(self._mesa, FILL_MESA)
-    self._draw_negative_space_grid()
-
-  def _draw_baseline(self):
-    """Draw the faint horizontal zero line beneath the bars."""
+    """Draw the baseline, stacked markers, and the left count axis."""
     sketch = self._sketch
+    layout = self._layout
+
     sketch.clear_fill()
     sketch.set_stroke(COLOR_BASELINE)
     sketch.set_stroke_weight(1)
     sketch.draw_line(LEFT_X0, self._baseline, LEFT_X1, self._baseline)
 
-  def _draw_series(self, values, fill):
-    """Draw one histogram series as filled bars (2px gap between bars).
+    # Order determines stacking: squares (ai) first, circles (expert) on top.
+    order = [
+        ("josh", "ai", "square", FILL_JOSH),
+        ("mesa", "ai", "square", FILL_MESA),
+        ("josh", "manual", "circle", FILL_JOSH),
+        ("mesa", "manual", "circle", FILL_MESA),
+    ]
+    bins = defaultdict(list)
+    for impl, model, shape, fill in order:
+      for minutes in self._series.get((impl, model), ()):
+        index = _bin_for(minutes, self._layout.edges)
+        bins[index].append((shape, fill))
+    self._max_count = max((len(v) for v in bins.values()), default=0)
 
-    @param values: The series' wall times in minutes.
-    @type values: list of float
-    @param fill: The bar fill color.
-    @type fill: str
-    """
-    sketch = self._sketch
-    layout = self._layout
     sketch.clear_stroke()
-    sketch.set_fill(fill)
-    sketch.set_rect_mode("corners")
-    for edge, pct in zip(layout.edges, histogram(values, layout.edges)):
-      if pct <= 0:
-        continue
-      x1 = layout.left_x(edge)
-      x2 = layout.left_x(edge + BIN_WIDTH) - 2  # 2px gap between bars
-      top = layout.hist_y(pct, self._baseline, self._plot_h)
-      sketch.draw_rect(x1, top, x2, self._baseline)
+    sketch.set_rect_mode("center")
+    sketch.set_ellipse_mode("center")
+    for index in sorted(bins):
+      x = self._layout.left_x(self._layout.edges[index])
+      for i, (shape, fill) in enumerate(bins[index]):
+        cy = self._y_for_count(i + 1)
+        sketch.set_fill(fill)
+        if shape == "circle":
+          sketch.draw_ellipse(x, cy, MARKER_SIZE, MARKER_SIZE)
+        else:
+          sketch.draw_rect(x, cy, MARKER_SIZE, MARKER_SIZE)
 
-  MAJOR_STEP = 2
+    self._draw_count_axis()
 
-  def _draw_negative_space_grid(self):
-    """Carve white gridlines through the bars and label the major ticks.
-
-    Gridlines are drawn in the background color at every half-tick (e.g.
-    10%, 20%, 30%, ...), skipping the baseline; percent labels are drawn at
-    the major ticks (every L{MAJOR_STEP}) only.
-    """
+  def _draw_count_axis(self):
+    """Draw the stacked-count ticks on the far left of the row (0-15, step 3)."""
     sketch = self._sketch
-    layout = self._layout
-    sketch.clear_fill()
-    sketch.set_stroke(COLOR_BG)
-    sketch.set_stroke_weight(2)
-    pct = self.MAJOR_STEP / 2.0
-    while pct <= layout.y_max + 0.001:
-      y = layout.hist_y(pct, self._baseline, self._plot_h)
-      sketch.draw_line(LEFT_X0, y, LEFT_X1, y)
-      pct += self.MAJOR_STEP / 2.0
     sketch.clear_stroke()
     sketch.set_fill(COLOR_MUTED)
-    sketch.set_text_font(FONT, 17)
+    sketch.set_text_font(FONT, 15)
     sketch.set_text_align("right", "center")
-    pct = 0
-    while pct <= layout.y_max + 0.001:
-      y = layout.hist_y(pct, self._baseline, self._plot_h)
-      sketch.draw_text(LEFT_X0 - 8, y, "%d" % pct)
-      pct += self.MAJOR_STEP
+    for count in range(0, 16, 3):
+      sketch.draw_text(COUNT_AXIS_X + 5, self._y_for_count(count), str(count))
 
 
-class AveragePresenter:
-  """Right side of one row: Josh, Mesa, and time-saved bars (in minutes)."""
+class AveragePanel:
+  """Draws the ai and expert two-column bar groups on the right of one row.
 
-  BAR_H = 15
+  Both columns share a fixed 0-300 minute axis. Each column shows a Josh and a
+  Mesa bar, with a left-aligned label giving the runtime name and its mean wall
+  time in parentheses, and the bar drawn directly below the label.
+  """
 
-  def __init__(self, sketch, layout, josh_mean, mesa_mean, band_y0, band_y1):
-    """Capture the sketch, scales, the two means, and band geometry.
-
-    @param sketch: The Sketchingpy surface to draw on.
-    @type sketch: sketchingpy.Sketch2DStatic
-    @param layout: The shared axis scales.
-    @type layout: L{Layout}
-    @param josh_mean: Mean Josh wall time in minutes.
-    @type josh_mean: float
-    @param mesa_mean: Mean Mesa wall time in minutes.
-    @type mesa_mean: float
-    @param band_y0: Top y pixel of this row's band.
-    @type band_y0: float
-    @param band_y1: Bottom y pixel of this row's band.
-    @type band_y1: float
-    """
+  def __init__(self, sketch, layout, means, band_y0, band_y1):
     self._sketch = sketch
     self._layout = layout
-    self._josh_mean = josh_mean
-    self._mesa_mean = mesa_mean
-    self._band_y0 = band_y0
-    self._band_y1 = band_y1
+    self._top_y = band_y0
+    self._bottom_y = band_y1
+    self._means = means
+
+  @staticmethod
+  def _column_x(model):
+    """Return the left x pixel of a column given its model key.
+
+    :param model: C{"ai"} or C{"manual"}.
+    :return: The column's left x pixel.
+    """
+    index = 0 if model == "ai" else 1
+    return RIGHT_X0 + index * (GROUP_W + COLUMN_GAP)
+
+  def _right_x(self, model, minutes):
+    """Map a minute to an x pixel within a column on the 0-300 axis."""
+    return self._column_x(model) + (minutes / RIGHT_MAX) * GROUP_W
 
   def draw(self):
-    """Draw the Josh, Mesa, and time-saved bars with their labels."""
-    saved = self._mesa_mean - self._josh_mean
-    pct_faster = 100.0 * saved / self._mesa_mean
-    self._draw_bar(0, "Josh (%.0f minutes)" % self._josh_mean, self._josh_mean,
-                   COLOR_JOSH, FILL_JOSH)
-    self._draw_bar(1, "Mesa (%.0f minutes)" % self._mesa_mean, self._mesa_mean,
-                   COLOR_MESA, FILL_MESA)
-    self._draw_bar(2, "%.0f%% faster (%.0f minutes)" % (pct_faster, saved), saved,
-                   COLOR_DIFF, FILL_DIFF)
+    """Draw the ai and expert columns, left to right."""
+    for model in ["ai", "manual"]:
+      self._draw_column(model)
 
-  def _draw_bar(self, slot, label, minutes, ink, fill):
-    """Draw one labeled average bar in its vertical slot.
-
-    @param slot: The 0-based slot index (top to bottom) within the band.
-    @type slot: int
-    @param label: The text drawn above the bar.
-    @type label: str
-    @param minutes: The bar length in minutes.
-    @type minutes: float
-    @param ink: The label text color.
-    @type ink: str
-    @param fill: The bar fill color.
-    @type fill: str
-    """
+  def _draw_column(self, model):
+    """Draw one column: header, two labeled bars, and the shared 0-300 axis."""
     sketch = self._sketch
-    layout = self._layout
-    slot_h = (self._band_y1 - self._band_y0) / 3.0
-    slot_top = self._band_y0 + slot * slot_h
+    gx0 = self._column_x(model)
+    gx1 = gx0 + GROUP_W
+    gcx = (gx0 + gx1) / 2
+    label = "AI" if model == "ai" else "Expert"
 
     sketch.clear_stroke()
-    sketch.set_fill(ink)
+    sketch.set_fill(COLOR_INK)
     sketch.set_text_font(FONT_BOLD, 18)
-    sketch.set_text_align("left", "bottom")
-    sketch.draw_text(RIGHT_X0, slot_top + 18, label)
+    sketch.set_text_align("center", "bottom")
+    sketch.draw_text(gcx, self._top_y + 8, label)
 
-    bar_top = slot_top + 24
-    sketch.set_fill(fill)
-    sketch.set_rect_mode("corners")
-    sketch.draw_rect(RIGHT_X0, bar_top, layout.right_x(minutes), bar_top + self.BAR_H)
+    josh_mean, mesa_mean = self._means.get(model, (0.0, 0.0))
+    bars = [
+        ("Josh", josh_mean, COLOR_JOSH, FILL_JOSH),
+        ("Mesa", mesa_mean, COLOR_MESA, FILL_MESA),
+    ]
+    y = self._top_y + GROUP_LABEL_Y + 5
+    for i, (name, minutes, ink, fill) in enumerate(bars):
+      sketch.clear_stroke()
+      sketch.set_fill(ink)
+      sketch.set_text_font(FONT_BOLD, 15)
+      sketch.set_text_align("left", "bottom")
+      sketch.draw_text(gx0, y, "%s (%d min)" % (name, round(minutes)))
+      sketch.set_fill(fill)
+      sketch.set_rect_mode("corners")
+      sketch.draw_rect(gx0, y + 2, self._right_x(model, minutes), y + 2 + BAR_H)
+      # 10px extra padding between the Josh and Mesa bars
+      gap = BAR_H + BAR_SLOT + (10 if i == 0 else 0)
+      y += gap
+
+    self._draw_column_axis(gx0, gx1, gcx)
+
+  def _draw_column_axis(self, gx0, gx1, gcx):
+    """Draw the 0-300 tick row for one column (both columns share this)."""
+    sketch = self._sketch
+    axis_y = self._bottom_y
+    for tick in range(0, int(RIGHT_MAX) + 1, 100):
+      x = gx0 + (tick / RIGHT_MAX) * (gx1 - gx0)
+      sketch.clear_fill()
+      sketch.set_stroke(COLOR_MUTED)
+      sketch.set_stroke_weight(1)
+      sketch.draw_line(x, axis_y + 4, x, axis_y + 9)
+      sketch.clear_stroke()
+      sketch.set_fill(COLOR_MUTED)
+      sketch.set_text_font(FONT, 14)
+      sketch.set_text_align("center", "top")
+      sketch.draw_text(x, axis_y + 12, str(tick))
+    sketch.clear_stroke()
+    sketch.set_fill(COLOR_MUTED)
+    sketch.set_text_font(FONT, 15)
+    sketch.set_text_align("center", "top")
+    sketch.draw_text(gcx, axis_y + 28, "minutes")
 
 
-class TrialPresenter:
-  """One row (a single threaded/non-threaded condition): histogram + averages."""
+def draw_legend(sketch):
+  """Draw the square/circle legend aligned with the two right columns."""
+  for index, (label, shape) in enumerate([("AI", "square"), ("Expert", "circle")]):
+    gx0 = RIGHT_X0 + index * (GROUP_W + COLUMN_GAP)
+    gcx = gx0 + GROUP_W / 2
+    marker_x = gcx - MARKER_SIZE / 2 - 4
+    sketch.clear_stroke()
+    sketch.set_fill(COLOR_INK)
+    if shape == "square":
+      sketch.set_rect_mode("center")
+      sketch.draw_rect(marker_x, LEGEND_Y, MARKER_SIZE, MARKER_SIZE)
+    else:
+      sketch.set_ellipse_mode("center")
+      sketch.draw_ellipse(marker_x, LEGEND_Y, MARKER_SIZE, MARKER_SIZE)
+    sketch.set_fill(COLOR_INK)
+    sketch.set_text_font(FONT_BOLD, 16)
+    sketch.set_text_align("left", "center")
+    sketch.draw_text(marker_x + MARKER_SIZE / 2 + 6, LEGEND_Y, label)
 
-  def __init__(self, sketch, layout, josh, mesa, band_y0, band_y1):
-    """Build the histogram and average presenters for one row.
 
-    @param sketch: The Sketchingpy surface to draw on.
-    @type sketch: sketchingpy.Sketch2DStatic
-    @param layout: The shared axis scales.
-    @type layout: L{Layout}
-    @param josh: Josh trial wall times in minutes.
-    @type josh: list of float
-    @param mesa: Mesa trial wall times in minutes.
-    @type mesa: list of float
-    @param band_y0: Top y pixel of this row's band.
-    @type band_y0: float
-    @param band_y1: Bottom y pixel of this row's band.
-    @type band_y1: float
-    """
-    self._histogram = HistogramPresenter(sketch, layout, josh, mesa, band_y0, band_y1)
-    self._average = AveragePresenter(
-        sketch, layout, sum(josh) / len(josh), sum(mesa) / len(mesa), band_y0, band_y1
-    )
+class RowPresenter:
+  """One row (a threaded/non-threaded condition): distribution + average bars."""
+
+  def __init__(self, sketch, layout, series, band_y0, band_y1):
+    self._distribution = DistributionPanel(sketch, layout, series, band_y0, band_y1)
+    means = {
+        "ai": (_mean(series.get(("josh", "ai"), [])),
+               _mean(series.get(("mesa", "ai"), []))),
+        "manual": (_mean(series.get(("josh", "manual"), [])),
+                   _mean(series.get(("mesa", "manual"), []))),
+    }
+    self._average = AveragePanel(sketch, layout, means, band_y0, band_y1)
 
   def draw(self):
-    """Draw this row's histogram (left) and average bars (right)."""
-    self._histogram.draw()
+    self._distribution.draw()
     self._average.draw()
 
 
 class MainPresenter:
-  """Full figure: chrome (title, subtitles, rotated labels, axes) plus both rows."""
+  """Full figure: chrome plus the threaded and unthreaded rows."""
 
-  TITLE = "Josh runs faster in both the threaded and non-threaded trials."
+  TITLE = "Josh vs. Mesa wall time: expert models are fastest; threaded runs beat serial."
 
   def __init__(self, sketch, layout, groups):
-    """Build the top (threaded) and bottom (non-threaded) row presenters.
-
-    @param sketch: The Sketchingpy surface to draw on.
-    @type sketch: sketchingpy.Sketch2DStatic
-    @param layout: The shared axis scales.
-    @type layout: L{Layout}
-    @param groups: Wall times keyed by C{(implementation, threaded)}.
-    @type groups: dict of (tuple of str) to (list of float)
-    """
     self._sketch = sketch
     self._layout = layout
-    self._top = TrialPresenter(
-        sketch, layout,
-        groups[("josh", "true")], groups[("mesa", "true")], TOP_Y0, TOP_Y1,
-    )
-    self._bottom = TrialPresenter(
-        sketch, layout,
-        groups[("josh", "false")], groups[("mesa", "false")], BOT_Y0, BOT_Y1,
-    )
+    self._top = RowPresenter(sketch, layout, self._series(groups, "true"), TOP_Y0, TOP_Y1)
+    self._bottom = RowPresenter(sketch, layout, self._series(groups, "false"), BOT_Y0, BOT_Y1)
+
+  @staticmethod
+  def _series(groups, threaded):
+    """Rebuild a (implementation, model) -> minutes map for one row."""
+    out = {}
+    for (impl, model, thr), values in groups.items():
+      if thr == threaded:
+        out.setdefault((impl, model), []).extend(values)
+    return out
 
   def draw(self):
-    """Clear the figure and draw all chrome and both rows."""
-    self._sketch.clear(COLOR_BG)
+    sketch = self._sketch
+    sketch.clear(COLOR_BG)
     self._draw_title()
     self._draw_subtitles()
     self._draw_row_labels()
     self._top.draw()
     self._bottom.draw()
-    self._draw_minute_axes()
+    self._draw_wall_time_axis()
+    draw_legend(sketch)
 
   def _draw_title(self):
-    """Draw the figure title in the top-left."""
     sketch = self._sketch
     sketch.clear_stroke()
     sketch.set_fill(COLOR_INK)
-    sketch.set_text_font(FONT_BOLD, 29)
+    sketch.set_text_font(FONT_BOLD, 25)
     sketch.set_text_align("left", "top")
-    sketch.draw_text(28, 26, self.TITLE)
+    sketch.draw_text(28, 22, self.TITLE)
 
   def _draw_subtitles(self):
-    """Draw the centered column subtitles above the two panels."""
     sketch = self._sketch
     sketch.clear_stroke()
     sketch.set_fill(COLOR_MUTED)
-    sketch.set_text_font(FONT, 19)
+    sketch.set_text_font(FONT, 18)
     sketch.set_text_align("center", "baseline")
-    sketch.draw_text((LEFT_X0 + LEFT_X1) / 2, 96, "distribution of individual experiments")
-    sketch.draw_text((RIGHT_X0 + RIGHT_X1) / 2, 96, "average of experiments")
+    sketch.draw_text((LEFT_X0 + LEFT_X1) / 2, 108, "each marker = one experiment")
+    sketch.draw_text((RIGHT_X0 + RIGHT_X1) / 2, 108, "average of experiments")
 
   def _draw_row_labels(self):
-    """Draw the rotated y-axis labels for both rows."""
-    self._rotated_label(self.TOP_CENTER(), "# threaded experiments")
-    self._rotated_label(self.BOT_CENTER(), "# unthreaded experiments")
-
-  @staticmethod
-  def TOP_CENTER():
-    """Return the vertical center of the top row's band.
-
-    @return: The y pixel midway between L{TOP_Y0} and L{TOP_Y1}.
-    @rtype: float
-    """
-    return (TOP_Y0 + TOP_Y1) / 2
-
-  @staticmethod
-  def BOT_CENTER():
-    """Return the vertical center of the bottom row's band.
-
-    @return: The y pixel midway between L{BOT_Y0} and L{BOT_Y1}.
-    @rtype: float
-    """
-    return (BOT_Y0 + BOT_Y1) / 2
+    self._rotated_label((TOP_Y0 + TOP_Y1) / 2, "# threaded experiments")
+    self._rotated_label((BOT_Y0 + BOT_Y1) / 2, "# unthreaded experiments")
 
   def _rotated_label(self, center_y, text):
-    """Draw text rotated 90 degrees counter-clockwise at the row label x.
-
-    @param center_y: The vertical center the label is anchored on.
-    @type center_y: float
-    @param text: The label text.
-    @type text: str
-    """
     sketch = self._sketch
     sketch.clear_stroke()
     sketch.set_fill(COLOR_INK)
-    sketch.set_text_font(FONT_BOLD, 20)
+    sketch.set_text_font(FONT_BOLD, 18)
     sketch.set_text_align("center", "center")
     sketch.set_angle_mode("degrees")
     sketch.push_transform()
@@ -485,33 +417,14 @@ class MainPresenter:
     sketch.draw_text(0, 0, text)
     sketch.pop_transform()
 
-  def _draw_minute_axes(self):
-    """Tick the two shared horizontal (minute) axes beneath the bottom row.
-
-    The left axis ticks the histogram minutes every 50 from 100 up, and the
-    right axis ticks the average minutes every 100 from 0 up.
-    """
+  def _draw_wall_time_axis(self):
     layout = self._layout
     base_y = BOT_Y1
     left_ticks = [t for t in range(100, int(layout.x_hi) + 1, 50) if t >= layout.x_lo]
     self._tick_row([(layout.left_x(t), t) for t in left_ticks], base_y,
                    (LEFT_X0 + LEFT_X1) / 2, "wall time (minutes)")
-    right_ticks = list(range(0, int(layout.right_max) + 1, 100))
-    self._tick_row([(layout.right_x(t), t) for t in right_ticks], base_y,
-                   (RIGHT_X0 + RIGHT_X1) / 2, "wall time (minutes)")
 
   def _tick_row(self, positions, base_y, title_x, title):
-    """Draw a row of tick marks with value labels and an axis title.
-
-    @param positions: C{(x_pixel, value)} pairs for each tick.
-    @type positions: list of tuple
-    @param base_y: The y pixel of the axis line the ticks hang from.
-    @type base_y: float
-    @param title_x: The x pixel the axis title is centered on.
-    @type title_x: float
-    @param title: The axis title text.
-    @type title: str
-    """
     sketch = self._sketch
     for x, value in positions:
       sketch.clear_fill()
@@ -525,41 +438,21 @@ class MainPresenter:
       sketch.draw_text(x, base_y + 12, str(value))
     sketch.clear_stroke()
     sketch.set_fill(COLOR_MUTED)
-    sketch.set_text_font(FONT, 19)
+    sketch.set_text_font(FONT, 18)
     sketch.set_text_align("center", "top")
     sketch.draw_text(title_x, base_y + 30, title)
 
 
 def build_layout(groups):
-  """Derive the shared pixel/minute/percent scales from the trial data.
-
-  The minute axis is rounded out to the nearest 10 around the data extent, the
-  percent axis to the nearest even number above the tallest bin, and the
-  average-bar axis to the nearest 100 above the largest mean.
-
-  @param groups: Wall times keyed by C{(implementation, threaded)}.
-  @type groups: dict of (tuple of str) to (list of float)
-  @return: The shared layout/scales for the figure.
-  @rtype: L{Layout}
-  """
+  """Derive the shared scales from the trial data."""
   everything = [v for values in groups.values() for v in values]
   x_lo = math.floor(min(everything) / 10) * 10
   x_hi = math.ceil(max(everything) / 10) * 10
   edges = [x_lo + i * BIN_WIDTH for i in range(int((x_hi - x_lo) / BIN_WIDTH) + 1)]
-
-  peak = max(
-      max(histogram(values, edges)) for values in groups.values()
-  )
-  y_max = int(math.ceil(peak / 2.0) * 2)
-
-  means = [sum(values) / len(values) for values in groups.values()]
-  right_max = math.ceil(max(means) / 100.0) * 100
-
-  return Layout(x_lo, x_hi, y_max, right_max, edges)
+  return Layout(x_lo, x_hi, edges)
 
 
 def main():
-  """Load the results, render the comparison figure, and save it to PNG."""
   groups = load_trials(RESULTS_CSV)
   layout = build_layout(groups)
   sketch = sketchingpy.Sketch2DStatic(WIDTH, HEIGHT)

@@ -1,5 +1,9 @@
-implementation,threaded,n,mean_wall_s,min_wall_s,max_wall_s,stddev_wall_s,mean_user_s
-josh,false,10,12862.9,11862.1,13755.0,586.9,26398.2
-josh,true,10,5054.3,4745.7,5357.4,216.2,35341.9
-mesa,false,10,16654.9,15798.0,18241.2,884.2,16640.9
-mesa,true,10,9209.9,8308.4,10170.5,541.2,56100.8
+implementation,model,threaded,n,mean_wall_s,min_wall_s,max_wall_s,stddev_wall_s,mean_user_s
+josh,ai,false,10,17846.0,16818.7,19100.8,660.0,28429.9
+josh,ai,true,10,6280.2,5934.7,6801.8,258.3,40776.5
+josh,manual,false,10,8631.4,8208.8,9071.9,304.3,15234.6
+josh,manual,true,10,3479.3,3328.3,3605.5,86.9,21406.9
+mesa,ai,false,10,16280.8,15609.9,17315.9,640.8,16271.6
+mesa,ai,true,10,9288.0,8632.5,10100.0,485.2,56285.8
+mesa,manual,false,10,13625.5,12377.2,14706.5,800.2,13618.7
+mesa,manual,true,10,3564.5,3268.1,3820.4,186.2,24401.7

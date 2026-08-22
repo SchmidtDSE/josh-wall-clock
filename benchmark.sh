@@ -41,7 +41,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 JOSH_RUN="$SCRIPT_DIR/reference/run.sh"
 MESA_RUN="$SCRIPT_DIR/reference-mesa/run.sh"
 JAR="$SCRIPT_DIR/joshsim-fat.jar"
-JAR_URL="https://www.joshsim.org/dist/dev/joshsim-fat.jar"
+JAR_URL="https://www.joshsim.org/dist/freeze/josh-wall-clock-snapshot-202608.jar"
 
 REPLICATES="${1:-1}"
 ITERATIONS="${2:-10}"

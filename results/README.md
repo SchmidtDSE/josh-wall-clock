@@ -32,26 +32,41 @@ Wall-clock comparison of the Josh (JVM/BigDecimal) and Mesa (Python/Decimal) For
 | mesa | manual | false | CPython, `forevertree_manual.py` (serial) |
 | mesa | manual | true  | CPython, `forevertree_manual.py` (pathos ProcessPool) |
 
-> **Note:** The summary numbers below are from the earlier four-config archive
-> (ai only). They will be replaced with fresh eight-config aggregates after the
-> next fleet run.
-
 ## Summary (mean across 10 machines per config)
 
 | config | mean wall | min | max | stddev | mean CPU-sec (user) |
 |---|---:|---:|---:|---:|---:|
-| josh threaded | **5054.3s** (84.2 min) | 4745.7 | 5357.4 | 216.2 | 35341.9 |
-| mesa threaded | 9209.9s (153.5 min) | 8308.4 | 10170.5 | 541.2 | 56100.8 |
-| josh serial | 12862.9s (214.4 min) | 11862.1 | 13755.0 | 586.9 | 26398.2 |
-| mesa serial | 16654.9s (277.6 min) | 15798.0 | 18241.2 | 884.2 | 16640.9 |
+| josh manual threaded | **3479.3s** (58.0 min) | 3328.3 | 3605.5 | 86.9 | 21406.9 |
+| mesa manual threaded | 3564.5s (59.4 min) | 3268.1 | 3820.4 | 186.2 | 24401.7 |
+| josh ai threaded | 6280.2s (104.7 min) | 5934.7 | 6801.8 | 258.3 | 40776.5 |
+| mesa ai threaded | 9288.0s (154.8 min) | 8632.5 | 10100.0 | 485.2 | 56285.8 |
+| josh manual serial | 8631.4s (143.9 min) | 8208.8 | 9071.9 | 304.3 | 15234.6 |
+| mesa manual serial | 13625.5s (227.1 min) | 12377.2 | 14706.5 | 800.2 | 13618.7 |
+| josh ai serial | 17846.0s (297.4 min) | 16818.7 | 19100.8 | 660.0 | 28429.9 |
+| mesa ai serial | 16280.8s (271.3 min) | 15609.9 | 17315.9 | 640.8 | 16271.6 |
 
 ## Takeaways
 
-- **Josh is faster in every comparison.** Threaded: 1.82× faster wall-clock (5054s vs 9210s). Serial: 1.29× faster (12863s vs 16655s).
-- **Threading speedup** (serial → threaded): Josh **2.54×**, Mesa **1.81×**.
-- **CPU efficiency:** Mesa's free-threading burns far more cores for less gain. Mesa threaded uses 56101 CPU-sec to Josh's 35342. Mesa's 1.81× speedup costs ~3.4× the CPU (16641 to 56101 user-sec), indicating heavy free-threading/synchronization overhead.
-- **Sanity checks pass:** `mesa serial` user approx wall (16641 approx 16655) as it is genuinely single-core. Note `josh serial` runs ~2.0 cores (26398 / 12863) from background JVM GC/JIT threads.
-- Cross-machine variance is low (stddev 4–6% of mean), so the 10-machine estimate is stable.
+- **Manual threaded is the fastest tier**, and Josh edges out Mesa by ~2.4%
+  (3479s vs 3565s). The hand-written manual implementations are roughly **2×
+  faster** than the AI-generated ones when threaded.
+- **Threading speedup** (serial → threaded):
+  - manual: Josh **2.48×**, Mesa **3.82×**
+  - ai: Josh **2.84×**, Mesa **1.75×**
+- **AI vs manual is the biggest factor**: for both runtimes the manual model
+  beats the AI one at the same threading. This reflects algorithmic
+  differences — e.g. the manual Mesa caches climate lookups per timestep
+  (the AI Mesa re-derives nearest-neighbour indices per tree), and the manual
+  Josh hoists the climate impact to the patch level.
+- **CPU efficiency:** Mesa's threaded variants burn far more cores for the
+  gain. mesa-ai threaded uses 56286 CPU-sec (highest of all) yet is slower than
+  josh-ai threaded; mesa-manual threaded uses 24402 CPU-sec vs its 3565s wall.
+  Mesa's free-threading/process-pool overhead is heavy relative to Josh.
+- **Sanity checks pass:** serial configs have user ≈ wall (single core), while
+  threaded configs show user ≫ wall from multi-core execution. Note Josh's JVM
+  adds background GC/JIT threads, so josh serial user slightly exceeds wall.
+- Cross-machine variance is low (stddev 3–6% of mean for threaded; ~5% for
+  serial), so the 10-machine estimate is stable.
 
 ## Files
 
